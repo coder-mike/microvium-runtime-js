@@ -1,3 +1,4 @@
 node_modules
 build
 dist
+src/microvium-wasm-base64.ts
