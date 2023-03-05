@@ -1,6 +1,5 @@
 import typescript from '@rollup/plugin-typescript';
 import terser from '@rollup/plugin-terser';
-import tsconfig from './tsconfig.json' assert { type: "json" };
 import pkg from './package.json' assert { type: "json" };
 
 export default {
@@ -17,11 +16,7 @@ export default {
   }],
   plugins: [
     typescript({
-      ...tsconfig.compilerOptions,
-      sourceMap: true,
-      outDir: "dist",
-      declaration: true,
-      declarationDir: '.',
+      tsconfig: './tsconfig.json'
     }),
     terser(),
   ]

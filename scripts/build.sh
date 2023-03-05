@@ -42,5 +42,5 @@ wat2wasm build/microvium.wat -o dist/microvium.wasm
 
 node scripts/output-base64.mjs
 
-npx rollup --config rollup.config.js
+npx rollup --config rollup.config.mjs
 

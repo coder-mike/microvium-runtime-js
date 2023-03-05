@@ -1,4 +1,5 @@
-import { microviumWasmBase64 } from './microvium-wasm-base64'
+// Note: run `npm run build` to create this file
+import { microviumWasmBase64 } from './microvium-wasm-base64';
 
 export type AnyFunction = (...args: any[]) => any;
 export type Exports = Record<number, AnyFunction>;

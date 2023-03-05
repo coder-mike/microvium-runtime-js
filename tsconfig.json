@@ -9,7 +9,6 @@
         "noImplicitAny": false,
         "noImplicitThis": true,
         "outDir": "dist",
-        "rootDir": ".",
         "sourceMap": true,
         "strictNullChecks": true,
         "target": "ES2022",
@@ -17,7 +16,7 @@
     },
     "include": [
         "src/**/*",
-        "test/**/*"
+        "test/**/*",
     ],
     "exclude": [
         "node_modules",
