@@ -4,7 +4,7 @@ set -e
 CC="clang \
 	--target=wasm32 \
 	-nostdlib \
-	-O0 \
+	-O3 \
 	-I ./src \
 	-I ./src/microvium \
 	-I ./src/clib \
@@ -13,6 +13,7 @@ CC="clang \
 	-mbulk-memory"
 
 mkdir -p build
+mkdir -p dist
 
 $CC -o build/microvium.o -c src/microvium/microvium.c
 $CC -o build/allocator.o -c src/allocator.c
@@ -33,5 +34,13 @@ wasm-ld-15 \
 	build/microvium.o \
 	build/clib.o
 
+wasm2wat build/microvium1.wasm -o build/microvium1.wat
 
+node scripts/remove-zero-padding.mjs
+
+wat2wasm build/microvium.wat -o dist/microvium.wasm
+
+node scripts/output-base64.mjs
+
+npx rollup --config rollup.config.js
 

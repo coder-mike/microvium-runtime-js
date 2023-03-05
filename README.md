@@ -44,13 +44,13 @@ sayHello('Hello');
 
 Primitive values are always passed **by copy**.
 
-Objects passed out of Microvium are **by reference** -- the wrapper library maintains a `Proxy` of the Microvium object.
+Plain objects passed **out** of Microvium are **by reference** -- the wrapper library maintains a `Proxy` of the Microvium object. Except `Uint8Array` which is passed by copy due to the complexity and overhead implementing something that looks like `Uint8Array` but accesses data that the Microvium GC can relocate under the hood.
 
-Objects passed into the VM are passed **by copy**, since a Microvium VM has no `Proxy` type.
+Objects passed **into** Microvium are passed **by copy**, since a Microvium VM has no `Proxy` type.
 
 ## Memory usage
 
-The library is about 50kB uncompressed and has no external dependencies.
+The bundled library (`dist/index.js`) is about 50kB uncompressed and has no external dependencies.
 
 Each Microvium instance is a fixed size and takes 4 pages of memory (a total of 256kB):
 

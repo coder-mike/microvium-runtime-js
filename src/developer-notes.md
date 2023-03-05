@@ -1,6 +1,6 @@
 # Microvium Runtime - Developer Notes
 
-Note: although I'm on Windows, I'm using WSL (Ubuntu) to build because the installation instructions for Clang seems simpler on Ubuntu.
+Note: although I'm on Windows, I'm using WSL (Ubuntu) to build because the installation instructions for Clang seems simpler on Ubuntu, and for the life of me I can't figure out how to install `wasm-ld` on Windows, when on linux it seems to come with LLVM by default.
 
 The WASM build of Microvium uses **Clang** directly, not Emscripten, since Emscripten apparently adds a bunch of extra stuff, and I wanted to keep the build output small (that's what Microvium's all about!). But also, Microvium is much more efficient if it can be compiled to execute in a single, pre-defined page of RAM, and I felt that this would be easier to control with Clang than with Emscripten. It was still more difficult than I thought - [see below](#notes-about-memory-layout).
 
@@ -21,17 +21,19 @@ Note: I'm using llvm 15, including `wasm-ld-15` which the build script invokes w
 
 ### WABT
 
-Also requires [wabt](https://github.com/WebAssembly/wabt) to be installed and on the path, for `wat2wasm` and `wasm2wat`. Follow the steps in the wabt readme for `cloning` and `building`. Don't forget the submodules. II don't know if it's important but I ran these steps from an administrator prompt of "Developer command prompt for VS 2022"
+Also requires [wabt](https://github.com/WebAssembly/wabt) to be installed and on the path, for `wat2wasm` and `wasm2wat`. (Note: on npm there is a package called `wasm-wat` that also contains these tools, but they maybe aren't the latest because I get a warning when using them that some byte is not understood or something). Follow the steps in the wabt readme for `cloning` and `building`. Don't forget the submodules.
 
+If you're running in WSL, WABT also needs to be in WSL (and WABT is easier to install in WSL anyway).
+
+It seems you also need to add the wabt bin directory to the path. For me this meant adding this to my `~/.profile`:
+
+```sh
+# Include WABT on the PATH
+if [ -d "$HOME/wabt/bin" ] ; then
+  PATH="$PATH:$HOME/wabt/bin"
+fi
 ```
-mkdir build
-cd build
-cmake .. -DCMAKE_BUILD_TYPE=RELEASE -DCMAKE_INSTALL_PREFIX=C:/wabt -G "Visual Studio 17 2022"
-```
 
-For whatever reason, I needed to do the "install" step through Visual Studio IDE rather than on the command line (i.e. open up the sln, change the target to "Release" and build the "INSTALL" project).
-
-And then add the output bin dir to the path.
 
 
 ## Building

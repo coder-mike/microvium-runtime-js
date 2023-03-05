@@ -1,0 +1,27 @@
+{
+    "compilerOptions": {
+        "alwaysStrict": true,
+        "declaration": true,
+        "esModuleInterop": true,
+        "lib": ["ESNext", "dom"],
+        "module": "ES2022",
+        "noFallthroughCasesInSwitch": true,
+        "noImplicitAny": false,
+        "noImplicitThis": true,
+        "outDir": "dist",
+        "rootDir": ".",
+        "sourceMap": true,
+        "strictNullChecks": true,
+        "target": "ES2022",
+        "typeRoots": ["node_modules/@types"]
+    },
+    "include": [
+        "src/**/*",
+        "test/**/*"
+    ],
+    "exclude": [
+        "node_modules",
+        "dist",
+        "build"
+    ]
+}
