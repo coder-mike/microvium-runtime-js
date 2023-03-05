@@ -6,8 +6,9 @@ export default {
   input: 'src/index.ts',
   output: [{
     file: pkg.main,
+    name: 'Microvium',
     sourcemap: true,
-    format: 'cjs'
+    format: 'umd'
   }, {
     file: pkg.module,
     format: 'es',
@@ -18,6 +19,6 @@ export default {
     typescript({
       tsconfig: './tsconfig.json'
     }),
-    terser(),
+    // terser(),
   ]
 };

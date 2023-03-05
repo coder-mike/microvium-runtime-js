@@ -1,4 +1,5 @@
-import Microvium from '../dist/index'
+// import Microvium from '@microvium/runtime'
+import Microvium from '../dist/index.mjs'
 
 /*
 This snapshot is a microvium compilation of the following script:

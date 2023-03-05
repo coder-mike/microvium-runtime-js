@@ -34,7 +34,7 @@ const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 async function restore(snapshot: ArrayLike<number>, imports: Imports) {
-	const memory = new WebAssembly.Memory({ initial: 3, maximum: 4 });
+	const memory = new WebAssembly.Memory({ initial: 4, maximum: 4 });
 	const memArray = new Uint8Array(memory.buffer);
 	const mem16 = new Uint16Array(memory.buffer);
   const readWord = address => mem16[address >>> 1];
