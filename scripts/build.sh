@@ -4,7 +4,7 @@ set -e
 CC="clang \
 	--target=wasm32 \
 	-nostdlib \
-	-O0 \
+	-O3 \
 	-I ./src \
 	-I ./src/microvium \
 	-I ./src/clib \

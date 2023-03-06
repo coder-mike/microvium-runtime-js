@@ -7,6 +7,16 @@
  * Each block has a 2-byte block header that holds the size of the block
  * (including header) or null to indicate the terminating block. The low bit of
  * the header indicates whether the block is used or not - 0 means free.
+ *
+ * Note: this allocator may suffer from fragmentation. A longer-term solution is
+ * not to use an allocator at all but instead have a mode where the Microvium GC
+ * runs as a semi-space collector, using page 0 as the primary space and then
+ * collecting into page 1 and then copying the collected data back to page 0. A
+ * collection is already O(n) in the size of the living objects, so this doesn't
+ * change the overall computational complexity, and block copying a single page
+ * of memory will be pretty quick on a modern machine, and this would completely
+ * eliminate fragmentation and also allow the user-space program to consume the
+ * full 64kB if needed.
  */
 
 #include "allocator.h"
@@ -21,10 +31,10 @@
 const uint8_t reserve_ram[0x10000]; // 64kB
 const uint8_t reserve_rom[0x10000]; // 64kB
 
-#define ALLOCATOR_START_ADDR ((void*)&reserve_ram)
-static void* const allocatorStartAddr = ((void*)&reserve_ram);
+#define ALLOCATOR_START_ADDR ((volatile void*)0)
+static volatile void* const allocatorStartAddr = ((volatile void*)0);
 
-#define WORD_AT(vm, offset) (*(uint16_t*)(&reserve_ram[offset]))
+#define WORD_AT(vm, offset) (*(volatile uint16_t*)(0 + offset))
 
 // Bit of a hack
 extern void mvm_fatalError(int e);
@@ -36,12 +46,12 @@ void allocator_init(void* ramStart, size_t ramSize) {
   assert(ramStart == &reserve_ram);
   assert(ramSize == 0x10000);
 
-  memset(allocatorStartAddr, 0, 0x10000);
+  memset((void*)allocatorStartAddr, 0, 0x10000);
 
   WORD_AT(vm, 0x0) = 0xFFFE; // First bucket
   WORD_AT(vm, 0xFFFE) = 0; // Terminates link list of allocations
 
-  allocator_checkHeap();
+  // allocator_checkHeap();
 }
 
 void allocator_deinit() {
@@ -56,8 +66,8 @@ void* allocator_malloc(size_t size) {
   uint16_t needed = (size + 3) & 0xFFFE;
   if (needed < size) goto EXIT; // Size overflowed
 
-  uint16_t* p = &WORD_AT(vm, 0x0);
-  uint16_t* prevUnused = NULL;
+  volatile uint16_t* p = &WORD_AT(vm, 0x0);
+  volatile uint16_t* prevUnused = NULL;
   while (*p) {
     uint16_t header = *p;
     bool used = header & 1;
@@ -75,14 +85,14 @@ void* allocator_malloc(size_t size) {
         uint16_t remainingSize = blockSize - needed;
         if (remainingSize >= 64) {
           // Break the block up
-          uint16_t* nextBlock = (uint16_t*)((intptr_t)p + needed);
+          volatile uint16_t* nextBlock = (uint16_t*)((intptr_t)p + needed);
           *p = needed;
           *nextBlock = remainingSize;
         }
         *p |= 1;
         p += 1;
-        memset(p, 0xDA, needed - 2);
-        result = p;
+        memset((void*)p, 0xDA, needed - 2);
+        result = (void*)p;
         goto EXIT;
       } else { // Not used but not big enough
         prevUnused = p;
@@ -90,10 +100,10 @@ void* allocator_malloc(size_t size) {
     } else {
       prevUnused = NULL;
     }
-    p = (uint16_t*)((intptr_t)p + blockSize);
+    p = (volatile uint16_t*)((intptr_t)p + blockSize);
   }
 EXIT:
-  allocator_checkHeap();
+  // allocator_checkHeap();
   return result;
 }
 
@@ -105,13 +115,13 @@ void allocator_free(void* ptr) {
   *p &= 0xFFFE; // Flag it to be unused
   uint16_t size = *p;
   memset(p + 1, 0xDB, size - 2);
-  allocator_checkHeap();
+  // allocator_checkHeap();
 }
 
 void allocator_checkHeap() {
-  uint16_t* start = &WORD_AT(vm, 0x0);
-  uint16_t* end = &WORD_AT(vm, 0xFFFE);
-  uint16_t* p = start;
+  volatile uint16_t* start = &WORD_AT(vm, 0x0);
+  volatile uint16_t* end = &WORD_AT(vm, 0xFFFE);
+  volatile uint16_t* p = start;
   while (*p) {
     assert((p >= start) && (p <= end));
     p = (uint16_t*)((intptr_t)p + (*p & 0xFFFE));

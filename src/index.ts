@@ -1,4 +1,9 @@
-// Note: run `npm run build` to create this file
+// Note: run `npm run build` to create microvium-wasm-base64.ts. While it's
+// technically less efficient to use an embedded base64 string, the extra 12kB
+// or so probably won't make any realistic difference to anyone at the moment
+// but it's incredibly convenient for users since there's currently no way to
+// directly `import` a WASM file in JavaScript without setting up a bundler to
+// handle it for you.
 import { microviumWasmBase64 } from './microvium-wasm-base64';
 
 export type AnyFunction = (...args: any[]) => any;
@@ -115,7 +120,6 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
   const cachedValueToHost = new Map<number, any>();
 
 
-  debugger;
 
   return {
     exports: new Proxy({}, {
@@ -189,7 +193,6 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
 
   function valueToHost(vmValue) {
     // TODO: Remember: for pointers to ROM, we don't need to wrap with a handle
-    debugger;
 
     // Int14
     if ((vmValue & 3) === 3) {
