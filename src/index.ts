@@ -28,15 +28,15 @@ const notImplemented = () => { throw new Error('Not implemented') }
 const assert = x => { if (!x) throw new Error('Assertion failed') }
 const check = errorCode => { if (errorCode !== 0) throw new Error(`Microvium Error: ${errorCode}`) }
 
-const TextEncoder = typeof require !== 'undefined'
+const TextEncoder_ = typeof require !== 'undefined'
   ? require('util').TextEncoder // node.js
   : globalThis.TextEncoder; // browser
-const TextDecoder = typeof require !== 'undefined'
+const TextDecoder_ = typeof require !== 'undefined'
   ? require('util').TextDecoder // node.js
   : globalThis.TextDecoder; // browser
 
-const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();
+const textEncoder = new TextEncoder_();
+const textDecoder = new TextDecoder_();
 
 async function restore(snapshot: ArrayLike<number>, imports: Imports) {
 	const memory = new WebAssembly.Memory({ initial: 4, maximum: 4 });

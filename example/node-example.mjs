@@ -2,7 +2,7 @@
 import Microvium from '../dist/index.mjs'
 
 /*
-This snapshot is a microvium compilation of the following script:
+The following snapshot is a microvium compilation of this script:
 
 ```
 const print = vmImport(1);

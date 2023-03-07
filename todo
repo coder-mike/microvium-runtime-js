@@ -1,2 +1,2 @@
-- I'm compiling this with -O0 because the allocator has a problem with -O3
 - Copy the engine version out of microvium.c and into package.json
+- Snapshot support in API

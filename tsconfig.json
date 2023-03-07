@@ -15,12 +15,16 @@
         "typeRoots": ["node_modules/@types"]
     },
     "include": [
-        "src/**/*",
-        "test/**/*",
+        "src/**/*"
     ],
     "exclude": [
         "node_modules",
         "dist",
         "build"
-    ]
+    ],
+    "ts-node": {
+        "compilerOptions": {
+            "module": "CommonJS"
+        }
+    },
 }
