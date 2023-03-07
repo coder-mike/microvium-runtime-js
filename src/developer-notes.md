@@ -85,3 +85,8 @@ The linker is what controls the memory layout, and the WASM linker for Clang is 
   - `allocator.o` is the first compilation unit linked by linker command, so that `reserve_ram` is the first variable in the `.data`.
   - By default, the `.data` section seems to be put at address `0x400`, but the linker option `--global-base=0` moves this to address 0.
   - Putting `reserve_ram` in the `.data` section has the side effect of capturing the whole initial value (64kB of zeros) into the WASM file. So the build process strips this by converting WASM to WAT and then manually modifying this initializer, and then converting back to WASM.
+
+
+## Testing
+
+`npm test` uses mocha with ts-node. It also leverages `microvium` as a library to do the compilation.

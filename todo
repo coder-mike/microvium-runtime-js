@@ -1,2 +1,6 @@
 - Copy the engine version out of microvium.c and into package.json
 - Snapshot support in API
+- Expose GC API
+- Closures (by handle)
+- Objects
+- Uint8Array

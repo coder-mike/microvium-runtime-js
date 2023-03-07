@@ -6,5 +6,6 @@
     "dot",
     "spec"
   ],
+  "ui": "tdd",
   "spec": "tests/**/*.spec.ts"
 }

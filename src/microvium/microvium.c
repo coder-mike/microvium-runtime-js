@@ -583,21 +583,9 @@ typedef enum vm_TeSmallLiteralValue {
 #define MVM_NATIVE_POINTER_IS_16_BIT 0
 #endif
 
-#ifndef MVM_SUPPORT_FLOAT
-#define MVM_SUPPORT_FLOAT 1
+#ifndef MVM_FLOAT64_NAN
+#define MVM_FLOAT64_NAN ((MVM_FLOAT64)(INFINITY * 0.0))
 #endif
-
-#if MVM_SUPPORT_FLOAT
-
-  #ifndef MVM_FLOAT64
-  #define MVM_FLOAT64 double
-  #endif
-
-  #ifndef MVM_FLOAT64_NAN
-  #define MVM_FLOAT64_NAN ((MVM_FLOAT64)(INFINITY * 0.0))
-  #endif
-
-#endif // MVM_SUPPORT_FLOAT
 
 #ifndef MVM_SAFE_MODE
 #define MVM_SAFE_MODE 1
@@ -1556,7 +1544,6 @@ static inline Value* getHandleTargetOrNull(VM* vm, Value value);
 static TeError vm_objectKeys(VM* vm, Value* pObject);
 static mvm_TeError vm_uint8ArrayNew(VM* vm, Value* slot);
 static Value getBuiltin(VM* vm, mvm_TeBuiltins builtinID);
-static Value mvm_newNumber(VM* vm, MVM_FLOAT64 value);
 
 #if MVM_INCLUDE_DEBUG_CAPABILITY
 static void mvm_dbg_removeBreakpoint(VM* vm, uint16_t bytecodeAddress);

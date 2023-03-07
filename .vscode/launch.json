@@ -1,0 +1,30 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    // https://github.com/microsoft/vscode-recipes/tree/master/debugging-mocha-tests
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Mocha",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": [
+          "--require ts-node/register",
+          "--timeout",
+          "999999",
+          "--colors",
+          "--grep=\"pass basic values\"",
+          "${workspaceFolder}/test"
+      ],
+      "console": "internalConsole",
+      "skipFiles": [
+        "<node_internals>/**",
+        "node_modules/**",
+        "${workspaceRoot}/node_modules/**/*.js"
+      ],
+      "customDescriptionGenerator": "function (def) { if (this.toString) { const _v = this.toString(); if (_v.indexOf(\"[object Object]\") < 0) return _v || def; } return def; }",
+    }
+  ]
+}

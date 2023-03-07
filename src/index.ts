@@ -45,6 +45,9 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
   const readWord = address => mem16[address >>> 1];
   const writeWord = (address, value) => mem16[address >>> 1] = value;
   const objectProxyHandler = makeObjectProxyHandler();
+  const tempBuffer = new Uint8Array(8);
+  const tempFloat64Buffer = new Float64Array(tempBuffer.buffer);
+
 
   // This implementation assumes that the imports don't change over time.
   Object.freeze(imports);
@@ -119,8 +122,6 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
   const cachedValueToVm = new WeakMap();
   const cachedValueToHost = new Map<number, any>();
 
-
-
   return {
     exports: new Proxy({}, {
       get(_, p) {
@@ -176,6 +177,8 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
         if ((hostValue | 0) === hostValue && hostValue >= -0x2000 && hostValue <= 0x1FFF1) {
           return (hostValue << 2) | 3;
         }
+        if (isNaN(hostValue)) return 0x11;
+        if (Object.is(hostValue, -0)) return 0x15;
         return mvm_newNumber(vm, hostValue);
       }
       case 'string': {
@@ -184,6 +187,11 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
         // require 2 copies: one to get it into the WASM memory and one to copy
         // it into Microvium.
         notImplemented();
+        break;
+      }
+      case 'object': {
+        if (hostValue === null) return 0x05;
+        break;
       }
 
     }
@@ -251,11 +259,14 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
     const size = headerWord & 0xFFF;
     switch (typeCode) {
       // Int32
-      case 0x1: return readWord(address) | readWord(address + 2);
+      case 0x1:
+        return readWord(address) | (readWord(address + 2) << 16);
       // Float64
       case 0x2: {
-        const temp = new Float64Array(memory.buffer, address, 1);
-        return temp[0];
+        // Copy from the VM memory to the new buffer. Note: we need to copy the
+        // data out because `Float64Array` can't be
+        tempBuffer.set(memArray.subarray(address, address + 8));
+        return tempFloat64Buffer[0];
       }
       // String
       case 0x3:
