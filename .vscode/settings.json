@@ -1,3 +1,6 @@
 {
-  "terminal.integrated.defaultProfile.windows":"Ubuntu (WSL)"
+  "terminal.integrated.defaultProfile.windows": "Ubuntu (WSL)",
+  "cSpell.words": [
+    "fmod"
+  ]
 }
