@@ -50,7 +50,7 @@ Objects passed **into** Microvium are passed **by copy**, since a Microvium VM h
 
 ## Memory usage
 
-The bundled library (`dist/index.js`) is about 50kB uncompressed and has no external dependencies.
+The bundled library (`dist/index.js`) is about 50kB and has no external dependencies.
 
 Each Microvium instance is a fixed size and takes 4 pages of memory (a total of 256kB):
 

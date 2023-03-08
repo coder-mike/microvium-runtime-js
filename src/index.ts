@@ -38,6 +38,8 @@ const TextDecoder_ = typeof require !== 'undefined'
 const textEncoder = new TextEncoder_();
 const textDecoder = new TextDecoder_();
 
+
+
 async function restore(snapshot: ArrayLike<number>, imports: Imports) {
 	const memory = new WebAssembly.Memory({ initial: 4, maximum: 4 });
 	const memArray = new Uint8Array(memory.buffer);
@@ -48,6 +50,12 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
   const tempBuffer = new Uint8Array(8);
   const tempFloat64Buffer = new Float64Array(tempBuffer.buffer);
 
+  class HandleWrapper {
+    constructor(private handle: number) {}
+    release() { release(vm, this.handle); }
+    get value() { return readWord(this.handle + 4); } // the second field inside the handle is the value it refers to
+    get _dbgValue() { return valueToHost(this.value); }
+  }
 
   // This implementation assumes that the imports don't change over time.
   Object.freeze(imports);
@@ -87,6 +95,9 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
     mvm_call,
     mvm_newNumber,
     argsTemp,
+    alloc,
+    release,
+    initHandles,
   } = exports as any;
   const gp2 = generalPurpose2.value;
   const gp3 = generalPurpose3.value;
@@ -103,6 +114,7 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
   assert(ramStart === 0);
   assert(ramSize === 0x10000);
   allocator_init(ramStart, ramSize);
+  initHandles();
 
   // Copy the snapshot into ROM
   assert(snapshot.length < 0x10000);
@@ -147,7 +159,15 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
     }
     const resolveTo = imports[hostFunctionID];
     const result = resolveTo(...hostArgs);
-    const vmResult = valueToVM(result);
+    let vmResult = valueToVM(result);
+    // We can release the handle immediately because we're about to pass the
+    // value back to the VM and no GC cycle can happen between now and when the
+    // VM uses the returned value.
+    if (vmResult instanceof HandleWrapper) {
+      const value = vmResult.value;
+      vmResult.release();
+      vmResult = value;
+    }
     writeWord(out_vmpResult, vmResult);
     return 0;
   }
@@ -163,11 +183,26 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
     return readWord(gp3);
   }
 
+  function gcAllocate(size: number, typeCode: number) {
+    assert((size & 0xFFF) === size);
+    assert((typeCode & 0xF) === typeCode);
 
-  function print(s) {
-    console.log(s);
+    // Note: the VM returns a Microvium handle because handles are stable across
+    // garbage collection cycles. The glue code has 2048 available handles as of
+    // this writing.
+    const handle = alloc(vm, size, typeCode);
+    if (!handle) {
+      throw new Error('Microvium: runtime has run out of handles. This could happen if there are too many objects in the VM that are being referenced by live references in the host')
+    }
+    // Pointer to the allocated memory in the GC heap
+    const ptr = readWord(generalPurpose1);
+    const handleWrapper = new HandleWrapper(handle);
+    assert(handleWrapper.value === ptr);
+
+    return handleWrapper;
   }
 
+  // Returns an mvm_Value (number) or a HandleWrapper
   function valueToVM(hostValue) {
     switch (typeof hostValue) {
       case 'undefined': return 0x01;
@@ -182,12 +217,17 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
         return mvm_newNumber(vm, hostValue);
       }
       case 'string': {
-        // I'm thinking to directly inject the string into Microvium memory
-        // rather than going through mvm_newString, because mvm_newString would
-        // require 2 copies: one to get it into the WASM memory and one to copy
-        // it into Microvium.
-        notImplemented();
-        break;
+        if (hostValue === '__proto__') return 0x21;
+        if (hostValue === 'length') return 0x1D;
+
+        const bytes = textEncoder.encode(hostValue);
+        const size = bytes.length + 1; // Size including added null terminator
+        const handle = gcAllocate(size, 0x03);
+        const ptr = handle.value;
+        memArray.set(bytes, ptr);
+        memArray[ptr + size - 1] = 0; // Null terminator
+
+        return handle;
       }
       case 'object': {
         if (hostValue === null) return 0x05;
@@ -271,6 +311,8 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
       // String
       case 0x3:
       case 0x4: {
+        // Note: the `-1` is to remove the extra null terminator that Microvium
+        // adds to all strings.
         const temp = new Uint8Array(memory.buffer, address, size - 1);
         return textDecoder.decode(temp);
       }
@@ -278,16 +320,26 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
       case 0x5: {
         return (...hostArgs: any[]) => {
           // We only have space for 64 arguments in argsTemp
-          if (hostArgs.length > 64) {
-            throw new Error('Too many arguments')
+          const maxArgs = 64;
+          if (hostArgs.length > maxArgs) {
+            throw new Error(`Too many arguments (Microvium WASM runtime library only supports ${maxArgs} arguments)`)
           }
+          let argHandlesToRelease: HandleWrapper[] | undefined;
           for (let i = 0; i < hostArgs.length; i++) {
-            const vmArg = valueToVM(hostArgs[i]);
+            let vmArg = valueToVM(hostArgs[i]);
+            if (vmArg instanceof HandleWrapper) {
+              argHandlesToRelease ??= [];
+              argHandlesToRelease.push(vmArg);
+              vmArg = vmArg.value;
+            }
             writeWord(pArgsTemp + i * 2, vmArg);
           }
           assert(address >= romStart); // Functions are stored in ROM so we don't need a handle
           check(mvm_call(vm, vmValue, gp2, pArgsTemp, hostArgs.length));
           const vmResult = readWord(gp2);
+          if (argHandlesToRelease) {
+            for (const handle of argHandlesToRelease) handle.release();
+          }
           const hostResult = valueToHost(vmResult);
           return hostResult;
         }

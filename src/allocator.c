@@ -24,6 +24,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <assert.h>
 
 // Reserve space for "RAM" and "ROM". Note that RAM needs to be constrained to
 // the first page of memory. Note that at the moment I don't know how to use the
@@ -35,10 +36,6 @@ const uint8_t reserve_rom[0x10000]; // 64kB
 static volatile void* const allocatorStartAddr = ((volatile void*)0);
 
 #define WORD_AT(vm, offset) (*(volatile uint16_t*)(0 + offset))
-
-// Bit of a hack
-extern void mvm_fatalError(int e);
-#define assert(x) if (!(x)) mvm_fatalError(17)
 
 void allocator_init(void* ramStart, size_t ramSize) {
   // This allocator has been design to use exactly one page of memory, starting

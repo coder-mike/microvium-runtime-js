@@ -53,10 +53,10 @@ test('pass basic values', async () => {
   testValue(NaN);
   testValue(Infinity);
   testValue(-Infinity);
-  // testValue('any string');
-  // testValue('');
-  // testValue('__proto__');
-  // testValue('length');
+  testValue('__proto__');
+  testValue('length');
+  testValue('any string');
+  testValue('');
 })
 
 // TODO: Test function call arguments and return value both directions

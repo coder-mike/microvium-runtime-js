@@ -3,4 +3,7 @@
 - Expose GC API
 - Closures (by handle)
 - Objects
+- Arrays
 - Uint8Array
+- Error codes
+- Passing host functions
