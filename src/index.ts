@@ -208,12 +208,12 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
       case 'undefined': return 0x01;
       case 'boolean': return hostValue ? 0x09 : 0x0D;
       case 'number': {
+        if (Object.is(hostValue, -0)) return 0x15;
         // int14
         if ((hostValue | 0) === hostValue && hostValue >= -0x2000 && hostValue <= 0x1FFF1) {
           return (hostValue << 2) | 3;
         }
         if (isNaN(hostValue)) return 0x11;
-        if (Object.is(hostValue, -0)) return 0x15;
         return mvm_newNumber(vm, hostValue);
       }
       case 'string': {

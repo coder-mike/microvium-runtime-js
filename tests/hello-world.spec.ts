@@ -48,8 +48,11 @@ test('pass basic values', async () => {
   testValue(true);
   testValue(false);
   testValue(42);
+  testValue(-42);
   testValue(420000);
+  testValue(-420000);
   testValue(1.5);
+  testValue(-0);
   testValue(NaN);
   testValue(Infinity);
   testValue(-Infinity);
