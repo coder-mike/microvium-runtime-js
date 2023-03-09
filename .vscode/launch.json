@@ -15,9 +15,10 @@
           "--timeout",
           "999999",
           "--colors",
-          "--grep=\"pass basic values\"",
+          "--grep=\"performance\"",
           "${workspaceFolder}/test"
       ],
+      // "runtimeArgs": ["--trace-warnings"],
       "console": "internalConsole",
       "skipFiles": [
         "<node_internals>/**",

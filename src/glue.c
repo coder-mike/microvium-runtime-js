@@ -15,6 +15,9 @@ mvm_Value argsTemp[64];
 mvm_Handle handles[2048];
 mvm_Handle* unusedHandles;
 
+uint8_t engineMinorVersion = MVM_ENGINE_MINOR_VERSION;
+uint8_t engineMajorVersion = MVM_ENGINE_MAJOR_VERSION;
+
 extern mvm_TeError invokeHost(mvm_VM* vm, mvm_HostFunctionID hostFunctionID, mvm_Value* result, mvm_Value* args, uint8_t argCount);
 extern void importRequired(mvm_HostFunctionID hostFunctionID);
 

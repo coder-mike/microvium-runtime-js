@@ -5,6 +5,7 @@
 // directly `import` a WASM file in JavaScript without setting up a bundler to
 // handle it for you.
 import { microviumWasmBase64 } from './microvium-wasm-base64';
+import { mvm_TeError } from './microvium/runtime-types'
 
 export type AnyFunction = (...args: any[]) => any;
 export type Exports = Record<number, AnyFunction>;
@@ -26,7 +27,6 @@ const noOpFunc = Object.freeze(() => {});
 
 const notImplemented = () => { throw new Error('Not implemented') }
 const assert = x => { if (!x) throw new Error('Assertion failed') }
-const check = errorCode => { if (errorCode !== 0) throw new Error(`Microvium Error: ${errorCode}`) }
 
 const TextEncoder_ = typeof require !== 'undefined'
   ? require('util').TextEncoder // node.js
@@ -42,9 +42,10 @@ const textDecoder = new TextDecoder_();
 
 async function restore(snapshot: ArrayLike<number>, imports: Imports) {
 	const memory = new WebAssembly.Memory({ initial: 4, maximum: 4 });
-	const memArray = new Uint8Array(memory.buffer);
+	const mem8 = new Uint8Array(memory.buffer);
 	const mem16 = new Uint16Array(memory.buffer);
   const readWord = address => mem16[address >>> 1];
+  const readByte = address => mem8[address];
   const writeWord = (address, value) => mem16[address >>> 1] = value;
   const objectProxyHandler = makeObjectProxyHandler();
   const tempBuffer = new Uint8Array(8);
@@ -98,7 +99,11 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
     alloc,
     release,
     initHandles,
+    engineMinorVersion,
+    engineMajorVersion,
   } = exports as any;
+  const engineVersion = `${readByte(engineMajorVersion.value)}.${readByte(engineMinorVersion.value)}.0`;
+
   const gp2 = generalPurpose2.value;
   const gp3 = generalPurpose3.value;
   const ramStart = reserve_ram.value;
@@ -118,7 +123,9 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
 
   // Copy the snapshot into ROM
   assert(snapshot.length < 0x10000);
-  memArray.set(snapshot, romStart);
+  mem8.set(snapshot, romStart);
+
+  const requiredEngineVersion = `${readByte(romStart)}.${readByte(romStart + 2)}.0`;;
 
   check(mvm_restore(
     generalPurpose1, // *result
@@ -145,7 +152,9 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
         const hostExport = valueToHost(vmExport);
         return hostExport;
       }
-    }) as Exports
+    }) as Exports,
+    engineVersion,
+    requiredEngineVersion,
   }
 
   function invokeHost(vm, hostFunctionID, out_vmpResult, vmpArgs, argCount) {
@@ -224,8 +233,8 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
         const size = bytes.length + 1; // Size including added null terminator
         const handle = gcAllocate(size, 0x03);
         const ptr = handle.value;
-        memArray.set(bytes, ptr);
-        memArray[ptr + size - 1] = 0; // Null terminator
+        mem8.set(bytes, ptr);
+        mem8[ptr + size - 1] = 0; // Null terminator
 
         return handle;
       }
@@ -305,7 +314,7 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
       case 0x2: {
         // Copy from the VM memory to the new buffer. Note: we need to copy the
         // data out because `Float64Array` can't be
-        tempBuffer.set(memArray.subarray(address, address + 8));
+        tempBuffer.set(mem8.subarray(address, address + 8));
         return tempFloat64Buffer[0];
       }
       // String
@@ -375,4 +384,19 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
   function makeObjectProxyHandler() {
 
   }
+
+  function check(errorCode: number) {
+    if (errorCode === 0) return;
+
+    if (errorCode === mvm_TeError.MVM_E_WRONG_BYTECODE_VERSION) {
+      throw new Error(`Bytecode is targeting a different engine version. Engine version is ${engineVersion} but bytecode requires ^${requiredEngineVersion}.`);
+    }
+
+    const desc = errorCode in mvm_TeError
+      ? `${mvm_TeError[errorCode]} (${errorCode})`
+      : errorCode;
+
+    throw new Error(`Microvium Error: ${desc}`)
+  }
+
 }

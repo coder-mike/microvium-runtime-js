@@ -1,12 +1,13 @@
 {
   "name": "microvium-runtime",
-  "version": "7.0.0",
+  "version": "7.7.0",
   "description": "Run Microvium snapshots on a JavaScript host",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "scripts": {
     "test": "mocha",
-    "build": "./scripts/build.sh"
+    "build": "./scripts/build.sh",
+    "update-microvium": "./scripts/update-microvium.sh"
   },
   "repository": {
     "type": "git",

@@ -7,3 +7,5 @@
 - Uint8Array
 - Error codes
 - Passing host functions
+- Export version numbers to API and error messages
+- Get rid of the relative import of microvium

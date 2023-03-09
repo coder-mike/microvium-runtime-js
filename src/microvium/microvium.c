@@ -50,10 +50,6 @@
 
 #include "stdint.h"
 
-#define MVM_BYTECODE_VERSION 7
-// Note: MVM_ENGINE_VERSION is at the top of `microvium_internals.h`
-
-
 // These sections appear in the bytecode in the order they appear in this
 // enumeration.
 typedef enum mvm_TeBytecodeSection {
@@ -185,9 +181,9 @@ typedef enum mvm_TeBuiltins {
 
 // Minimal bytecode is 32 bytes (sizeof(mvm_TsBytecodeHeader) + BCS_SECTION_COUNT*2 + BIN_BUILTIN_COUNT*2)
 typedef struct mvm_TsBytecodeHeader {
-  uint8_t bytecodeVersion; // MVM_BYTECODE_VERSION
+  uint8_t bytecodeVersion; // MVM_ENGINE_MAJOR_VERSION
   uint8_t headerSize;
-  uint8_t requiredEngineVersion;
+  uint8_t requiredEngineVersion; // MVM_ENGINE_MINOR_VERSION
   uint8_t reserved; // =0
 
   uint16_t bytecodeSize; // Including header
@@ -560,9 +556,7 @@ typedef enum vm_TeSmallLiteralValue {
 
 
 
-#define MVM_ENGINE_VERSION 7
 #define MVM_EXPECTED_PORT_FILE_VERSION 1
-// Note: MVM_BYTECODE_VERSION is at the top of `microvium_bytecode.h`
 
 // -------------------------- Port-file defaults -----------------------------
 
@@ -651,12 +645,7 @@ typedef enum vm_TeSmallLiteralValue {
 #define MVM_INCLUDE_SNAPSHOT_CAPABILITY 1
 #endif
 
-/**
- * Set to 1 to compile support for the debug API (mvm_dbg_*)
- */
-#ifndef MVM_INCLUDE_DEBUG_CAPABILITY
-#define MVM_INCLUDE_DEBUG_CAPABILITY 1
-#endif
+
 
 #define MVM_NEED_DEFAULT_CRC_FUNC 0
 
@@ -1546,10 +1535,6 @@ static Value getBuiltin(VM* vm, mvm_TeBuiltins builtinID);
 
 // This is non-static because the WASM glue code uses this directly for efficiency reasons
 void* mvm_gc_allocateWithHeader(VM* vm, uint16_t sizeBytes, uint8_t /*TeTypeCode*/ typeCode);
-
-#if MVM_INCLUDE_DEBUG_CAPABILITY
-static void mvm_dbg_removeBreakpoint(VM* vm, uint16_t bytecodeAddress);
-#endif // MVM_INCLUDE_DEBUG_CAPABILITY
 
 #if MVM_SUPPORT_FLOAT
 MVM_FLOAT64 mvm_toFloat64(mvm_VM* vm, mvm_Value value);
@@ -4227,12 +4212,12 @@ TeError mvm_restore(mvm_VM** result, MVM_LONG_PTR_TYPE lpBytecode, size_t byteco
     return MVM_E_INVALID_BYTECODE;
   }
 
-  if (header.bytecodeVersion != MVM_BYTECODE_VERSION) {
+  if (header.bytecodeVersion != MVM_ENGINE_MAJOR_VERSION) {
     CODE_COVERAGE_ERROR_PATH(430); // Not hit
     return MVM_E_WRONG_BYTECODE_VERSION;
   }
 
-  if (MVM_ENGINE_VERSION < header.requiredEngineVersion) {
+  if (MVM_ENGINE_MINOR_VERSION < header.requiredEngineVersion) {
     CODE_COVERAGE_ERROR_PATH(247); // Not hit
     return MVM_E_REQUIRES_LATER_ENGINE;
   }
@@ -4309,6 +4294,9 @@ TeError mvm_restore(mvm_VM** result, MVM_LONG_PTR_TYPE lpBytecode, size_t byteco
 
   if (initialHeapSize) {
     CODE_COVERAGE(435); // Hit
+    if (initialHeapSize > MVM_MAX_HEAP_SIZE) {
+      MVM_FATAL_ERROR(vm, MVM_E_OUT_OF_MEMORY);
+    }
     // The initial heap needs to be 2-byte aligned because we start appending
     // new allocations to the end of it directly.
     VM_ASSERT(vm, initialHeapSize % 2 == 0);

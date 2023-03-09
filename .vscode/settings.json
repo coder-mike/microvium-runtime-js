@@ -2,5 +2,10 @@
   "terminal.integrated.defaultProfile.windows": "Ubuntu (WSL)",
   "cSpell.words": [
     "fmod"
-  ]
+  ],
+  "files.associations": {
+    "*.mvms": "javascript",
+    "*.evm": "c",
+    "microvium.h": "c"
+  }
 }
