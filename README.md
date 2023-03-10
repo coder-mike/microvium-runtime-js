@@ -21,7 +21,8 @@ npm install @microvium/runtime
 ```js
 import Microvium from '@microvium/runtime';
 
-// Snapshot can be Uint8Array or plain array
+// Snapshot can be Uint8Array or plain array from running
+// `microvium script.js --output-bytes`
 const snapshot = [/* ...bytes... */];
 
 // Functions in the host that the snapshot can call, each
@@ -42,11 +43,16 @@ sayHello('Hello');
 
 ## Passing values to and from the VM
 
-Primitive values are always passed **by copy**.
+Values can be passed to and from the Microvium VM as function arguments and return values. The library wrapper code does its best to convert Microvium JavaScript types to host JavaScript types and vice versa.
 
-Plain objects passed **out** of Microvium are **by reference** -- the wrapper library maintains a `Proxy` of the Microvium object. Except `Uint8Array` which is passed by copy due to the complexity and overhead implementing something that looks like `Uint8Array` but accesses data that the Microvium GC can relocate under the hood.
+Primitive values are always passed **by copy** (by value).
 
-Objects passed **into** Microvium are passed **by copy**, since a Microvium VM has no `Proxy` type.
+Everything passed **into** Microvium is passed **by copy**, since a Microvium VM has no `Proxy` type that would allow it to have mutable references to host objects.
+
+Plain objects and arrays are passed **out** of Microvium **by reference** -- the wrapper library maintains a `Proxy` of the Microvium object, so that the host may mutate the Microvium object by interacting with the proxy.
+
+`Uint8Array` is passed out of Microvium not as a host `Uint8Array` but as a `MicroviumUint8Array` which has methods `slice` and `set` to read and write from it respectively.
+
 
 ## Memory usage
 
