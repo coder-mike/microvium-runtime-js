@@ -21,7 +21,7 @@ const microviumWasmBytes = new Uint8Array(new ArrayBuffer(rawLength));
 for (let i = 0; i < rawLength; i++) {
   microviumWasmBytes[i] = microviumWasmRaw.charCodeAt(i);
 }
-const modulePromise = WebAssembly.compile(microviumWasmBytes.buffer);
+let modulePromise: PromiseLike<WebAssembly.Module> = WebAssembly.compile(microviumWasmBytes.buffer);
 
 const noOpFunc = Object.freeze(() => {});
 
@@ -38,9 +38,11 @@ const TextDecoder_ = typeof require !== 'undefined'
 const textEncoder = new TextEncoder_();
 const textDecoder = new TextDecoder_();
 
+export function useWasmModule(module: PromiseLike<WebAssembly.Module>) {
+  modulePromise = module;
+}
 
-
-async function restore(snapshot: ArrayLike<number>, imports: Imports) {
+export async function restore(snapshot: ArrayLike<number>, imports: Imports) {
 	const memory = new WebAssembly.Memory({ initial: 4, maximum: 4 });
 	const mem8 = new Uint8Array(memory.buffer);
 	const mem16 = new Uint16Array(memory.buffer);
@@ -64,10 +66,10 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
 	const wasmImports = {
 		env: {
 			memory: memory,
-			mvm_fatalError: (vm, code) => {
-        const msg = `Microvium fatal error: code ${code}`;
-        console.error(msg);
-        throw new Error(msg);
+			mvm_fatalError: (code) => {
+        check(code);
+        // Check should throw because the code MVM_SUCCESS should not be used for fatal errors
+        throw new Error('unexpected');
       },
       fmod: (x, y) => x % y,
       pow: (x, y) => x ** y,
@@ -392,9 +394,10 @@ async function restore(snapshot: ArrayLike<number>, imports: Imports) {
       throw new Error(`Bytecode is targeting a different engine version. Engine version is ${engineVersion} but bytecode requires ^${requiredEngineVersion}.`);
     }
 
-    const desc = errorCode in mvm_TeError
-      ? `${mvm_TeError[errorCode]} (${errorCode})`
-      : errorCode;
+    const desc =
+      errorCode in mvm_TeError ? `${mvm_TeError[errorCode]} (${errorCode})` :
+      errorCode === undefined ? 'unknown error' :
+      errorCode;
 
     throw new Error(`Microvium Error: ${desc}`)
   }

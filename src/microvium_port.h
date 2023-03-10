@@ -28,8 +28,9 @@ less.
 
 #define MVM_ALLOCATION_BUCKET_SIZE 0x800
 
-// Leaving some space for the stack, globals, etc.
-#define MVM_MAX_HEAP_SIZE 0xE000
+// Note: roughly-speaking, we can't use more than half the memory in this setup
+// because when the heap is full we still need space to collect.
+#define MVM_MAX_HEAP_SIZE 0x8000
 
 // The first page is be used for RAM, so there is no offset (most efficient)
 #define MVM_USE_SINGLE_RAM_PAGE 1

@@ -63,6 +63,6 @@ Page 0 is used for the Microvium heap because Microvium pointer values are inter
 
 ## Contributing
 
-Please help me maintain this!
+Please help me develop/maintain this!
 
-See also [Developer Notes](src/developer-notes.md).
+See also [./src/developer-notes.md](src/developer-notes.md) and [./todo](todo).

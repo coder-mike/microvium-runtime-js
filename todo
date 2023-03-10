@@ -1,11 +1,10 @@
-- Copy the engine version out of microvium.c and into package.json
+- Build should copy the engine version out of microvium.c and into package.json
 - Snapshot support in API
 - Expose GC API
-- Closures (by handle)
-- Objects
-- Arrays
-- Uint8Array
-- Error codes
-- Passing host functions
-- Export version numbers to API and error messages
-- Get rid of the relative import of microvium
+- Support for passing arguments/return values of:
+  - Closures (by handle)
+  - Objects
+  - Arrays
+  - Uint8Array
+  - Host functions
+- Get rid of the relative import of microvium in tests (before first release)

@@ -1,7 +1,10 @@
 import Runtime from '../src/index';
 import assert from 'assert/strict';
-// TODO: this relative import is temporary
+// TODO: this relative import is temporary while I'm developing so I have the
+// latest working copy of Microvium. Before the first release, I intend to
+// change this back to just `microvium`
 import { Microvium, addDefaultGlobals } from '../../microvium/dist/lib';
+import fs from 'fs';
 
 const basicValues: any[] = [
   undefined,
@@ -23,7 +26,7 @@ const basicValues: any[] = [
   '',
 ]
 
-test('hello-world', async () => {
+test('hello-world', async function () {
   const source = `
     const print = vmImport(1);
     vmExport(1, main);
@@ -32,7 +35,7 @@ test('hello-world', async () => {
       print("hello, world")
     }`
 
-  const snapshot = compile(source);
+  const snapshot = compile(source, this.test!.title!);
 
   let print: string | undefined;
   const imports = {
@@ -47,7 +50,7 @@ test('hello-world', async () => {
   assert.equal(print, 'hello, world');
 });
 
-test('pass basic values', async () => {
+test('pass basic values', async function () {
   // This tests the passing of basic values in both directions across the
   // boundary and preserving in Microvium memory.
 
@@ -57,7 +60,7 @@ test('pass basic values', async () => {
     vmExport(2, value => x = value); // set
   `;
 
-  const snapshot = compile(source);
+  const snapshot = compile(source, this.test!.title!);
   const vm = await Runtime.restore(snapshot, {});
   const { [1]: get, [2]: set } = vm.exports;
 
@@ -72,7 +75,7 @@ test('pass basic values', async () => {
   }
 });
 
-test('fmod and pow', async () => {
+test('fmod and pow', async function () {
   // The operators fmod and pow are outsourced from the VM to the host. This
   // tests that they work correctly
 
@@ -81,7 +84,7 @@ test('fmod and pow', async () => {
     vmExport(2, (x, y) => x ** y); // pow
   `;
 
-  const snapshot = compile(source);
+  const snapshot = compile(source, this.test!.title!);
   const vm = await Runtime.restore(snapshot, {});
   const { [1]: fmod, [2]: pow } = vm.exports;
 
@@ -124,7 +127,7 @@ test('performance 1', async function () {
     })
   `;
 
-  await measurePerformance(source);
+  await measurePerformance(source, this.test!.title!);
 })
 
 test('performance 2', async function () {
@@ -137,8 +140,8 @@ test('performance 2', async function () {
   // allocator. Honestly I'm little surprised that node wins this one, given how
   // much more complicated closures are in node.
 
-  const objCount = 100;
-  const repeatCount = 1000;
+  const objCount = 1000;
+  const repeatCount = 100;
 
   const source = `
     vmExport(1, () => {
@@ -156,7 +159,7 @@ test('performance 2', async function () {
       }
     })`;
 
-  await measurePerformance(source);
+  await measurePerformance(source, this.test!.title!);
 })
 
 function loadOnNode(source) {
@@ -165,16 +168,21 @@ function loadOnNode(source) {
   return { exports };
 }
 
-function compile(sourceText: string) {
+function compile(sourceText: string, testName: string) {
   const vm = Microvium.create();
   addDefaultGlobals(vm);
 
   vm.evaluateModule({ sourceText });
   const snapshot = vm.createSnapshot();
+
+  // Save the snapshot to a file, in case we need to debug.
+  fs.writeFileSync(`build/dbg-${testName.replace(/ /g, '-')}-bytes.js`,
+    `const snapshot = [${[...snapshot.data].map(d => `0x${d.toString(16)}`).join(',')}];`)
+
   return snapshot.data;
 }
 
-async function measurePerformance(source: string) {
+async function measurePerformance(source: string, testName: string) {
   // Node.js
   const onNode = loadOnNode(source);
   const startNode = process.hrtime.bigint();
@@ -183,7 +191,7 @@ async function measurePerformance(source: string) {
   console.log(`      Node: ${((Number(endNode) - Number(startNode))/1000_000).toFixed(1)} ms`)
 
   // Microvium on wasm
-  const snapshot = compile(source);
+  const snapshot = compile(source, testName);
   const wasmVm = await Runtime.restore(snapshot, {});
   const startWasmVm = process.hrtime.bigint();
   wasmVm.exports[1]();

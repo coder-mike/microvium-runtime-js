@@ -1,4 +1,5 @@
-import { strict as assert } from "assert";
+// Note: `runtime-types.ts` should not have any imports, because it's used by the wasm library as well
+const assert = (x: boolean) => { if (!x) throw new Error('Assertion failed')}
 
 export type UInt4 = number;
 export type UInt8 = number;
