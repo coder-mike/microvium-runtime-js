@@ -56,7 +56,7 @@ Plain objects and arrays are passed **out** of Microvium **by reference** -- the
 
 ## Memory usage
 
-The bundled library (`dist/index.js`) is about 50kB and has no external dependencies.
+The bundled library (`dist/index.js`) is about 60kB and has no external dependencies.
 
 Each Microvium instance is a fixed size and takes 4 pages of memory (a total of 256kB):
 
