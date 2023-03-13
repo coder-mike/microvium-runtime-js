@@ -15,7 +15,7 @@
           "--timeout",
           "999999",
           "--colors",
-          "--grep=\"memoryStats\"",
+          "--grep=\"createSnapshot\"",
           "${workspaceFolder}/test"
       ],
       // "runtimeArgs": ["--trace-warnings"],

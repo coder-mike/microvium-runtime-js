@@ -189,7 +189,8 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports) {
     createSnapshot() {
       const addr = exports.mvm_createSnapshot(vm, gp4);
       const size = readWord(gp4);
-      const result = mem8.slice(addr, size);
+      assert(readWord(gp4 + 2) === 0); // High word of size should be zero
+      const result = mem8.slice(addr, addr + size);
       exports.allocator_free(addr);
       return result;
     },

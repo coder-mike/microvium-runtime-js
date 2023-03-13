@@ -192,6 +192,28 @@ test('memoryStats', async function () {
   assert.equal(stats2.stackHeight, 16);
 })
 
+test('createSnapshot', async function () {
+  const source = `
+    let counter = 0;
+    vmExport(1, () => ++counter);
+  `;
+
+  const snapshot1 = compile(source, this.test!.title!);
+  const vm1 = await Runtime.restore(snapshot1, {});
+  // Counting
+  assert.equal(vm1.exports[1](), 1);
+  assert.equal(vm1.exports[1](), 2);
+  assert.equal(vm1.exports[1](), 3);
+
+  const snapshot2 = vm1.createSnapshot();
+
+  const vm2 = await Runtime.restore(snapshot2, {});
+  // Continue counting
+  assert.equal(vm2.exports[1](), 4);
+  assert.equal(vm2.exports[1](), 5);
+  assert.equal(vm2.exports[1](), 6);
+})
+
 function loadOnNode(source) {
   const exports: any = {};
   eval(`((vmExport) => {${source}})`)((k, v) => exports[k] = v);
