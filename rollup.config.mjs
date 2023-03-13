@@ -8,7 +8,8 @@ export default {
     file: pkg.main,
     name: 'Microvium',
     sourcemap: true,
-    format: 'umd'
+    format: 'umd',
+    exports: 'named'
   }, {
     file: pkg.module,
     format: 'es',

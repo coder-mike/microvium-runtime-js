@@ -11,3 +11,4 @@ cp ../microvium/dist-c/microvium.c src/microvium/microvium.c
 cp ../microvium/dist-c/microvium.h src/microvium/microvium.h
 cp ../microvium/lib/runtime-types.ts src/microvium/runtime-types.ts
 node ./copy-engine-version.mjs
+node ./scripts/extract-memory-stats-layout.mjs

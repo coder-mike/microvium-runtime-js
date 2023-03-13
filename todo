@@ -1,6 +1,9 @@
 - I've introduced a bug into Microvium on the `wasm` branch that needs to be fixed.
+- Expose `mvm_free`
 - Snapshot support in API
 - Expose GC API
+- Expose debug API
+- Expose memory stats API
 - Support for passing arguments/return values of:
   - Closures (by handle)
   - Objects

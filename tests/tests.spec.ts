@@ -5,6 +5,7 @@ import assert from 'assert/strict';
 // change this back to just `microvium`
 import { Microvium, addDefaultGlobals } from '../../microvium/dist/lib';
 import fs from 'fs';
+import { MemoryStats, memoryStatsFields } from '../src/memory-stats-fields';
 
 const basicValues: any[] = [
   undefined,
@@ -160,6 +161,35 @@ test('performance 2', async function () {
     })`;
 
   await measurePerformance(source, this.test!.title!);
+})
+
+test('memoryStats', async function () {
+  const source = `
+    const done = vmImport(1);
+    const arr = [];
+    vmExport(1, () => {
+      for (let i = 0; i < 1000; i++)
+        arr[i] = [];
+      done();
+    });
+  `;
+
+  const snapshot = compile(source, this.test!.title!);
+  let stats2: MemoryStats = undefined as any;
+  const vm = await Runtime.restore(snapshot, {
+    [1]() {
+      stats2 = vm.getMemoryStats();
+    }
+  });
+  const stats1 = vm.getMemoryStats();
+  for (const field of memoryStatsFields) {
+    assert.equal(typeof stats1[field], 'number');
+  }
+  assert.equal(stats1.stackHeight, 0);
+  assert.equal(stats1.totalSize, 82);
+  vm.exports[1]();
+  assert.equal(stats2.totalSize, 15576);
+  assert.equal(stats2.stackHeight, 16);
 })
 
 function loadOnNode(source) {

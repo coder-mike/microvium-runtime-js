@@ -7,6 +7,7 @@
 void* generalPurpose1;
 uint16_t generalPurpose2;
 uint16_t generalPurpose3;
+size_t generalPurpose4;
 
 // Space to put arguments
 mvm_Value argsTemp[64];
@@ -14,6 +15,8 @@ mvm_Value argsTemp[64];
 // probably don't want too many of them anyway. They're about 8 bytes each.
 mvm_Handle handles[2048];
 mvm_Handle* unusedHandles;
+
+mvm_TsMemoryStats memoryStats;
 
 uint8_t engineMinorVersion = MVM_ENGINE_MINOR_VERSION;
 uint8_t engineMajorVersion = MVM_ENGINE_MAJOR_VERSION;

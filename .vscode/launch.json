@@ -15,7 +15,7 @@
           "--timeout",
           "999999",
           "--colors",
-          "--grep=\"performance\"",
+          "--grep=\"memoryStats\"",
           "${workspaceFolder}/test"
       ],
       // "runtimeArgs": ["--trace-warnings"],

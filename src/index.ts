@@ -4,6 +4,7 @@
 // but it's incredibly convenient for users since there's currently no way to
 // directly `import` a WASM file in JavaScript without setting up a bundler to
 // handle it for you.
+import { MemoryStats, memoryStatsFields } from './memory-stats-fields';
 import { microviumWasmBase64 } from './microvium-wasm-base64';
 import { mvm_TeError } from './microvium/runtime-types'
 
@@ -85,7 +86,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports) {
   const module = await modulePromise;
   const instance = await WebAssembly.instantiate(module, wasmImports);
 
-  const exports = instance.exports;
+  const exports = instance.exports as any;
   const {
     allocator_init,
     reserve_ram,
@@ -94,6 +95,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports) {
     generalPurpose1,
     generalPurpose2,
     generalPurpose3,
+    generalPurpose4,
     mvm_resolveExports,
     mvm_call,
     mvm_newNumber,
@@ -103,11 +105,12 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports) {
     initHandles,
     engineMinorVersion,
     engineMajorVersion,
-  } = exports as any;
+  } = exports;
   const engineVersion = `${readByte(engineMajorVersion.value)}.${readByte(engineMinorVersion.value)}.0`;
 
   const gp2 = generalPurpose2.value;
   const gp3 = generalPurpose3.value;
+  const gp4 = generalPurpose4.value;
   const ramStart = reserve_ram.value;
   const romStart = reserve_rom.value;
   const pArgsTemp = argsTemp.value;
@@ -144,6 +147,9 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports) {
   const cachedValueToHost = new Map<number, any>();
 
   return {
+    engineVersion,
+    requiredEngineVersion,
+
     exports: new Proxy({}, {
       get(_, p) {
         if (p in cachedExports) return cachedExports[p];
@@ -155,9 +161,48 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports) {
         return hostExport;
       }
     }) as Exports,
-    engineVersion,
-    requiredEngineVersion,
+
+    // This is of limited use since the WASM library uses a constant amount of
+    // GC. The reason I expose it is because there may be performance reasons
+    // why you want to force the GC at convenient times rather than letting it
+    // collect at random times.
+    runGC() {
+      exports.mvm_runGC(vm, false)
+    },
+
+    get currentAddress() {
+      return exports.mvm_getCurrentAddress(vm) as Number
+    },
+
+    getMemoryStats(): MemoryStats {
+      let addr = exports.memoryStats.value;
+      exports.mvm_getMemoryStats(vm, addr);
+      const stats: any = {};
+      for (const field of memoryStatsFields) {
+        // The WASM is compiled to be 32 bit.
+        stats[field] = readWord(addr) | (readWord(addr + 2) << 16);
+        addr += 4;
+      }
+      return stats;
+    },
+
+    createSnapshot() {
+      const addr = exports.mvm_createSnapshot(vm, gp4);
+      const size = readWord(gp4);
+      const result = mem8.slice(addr, size);
+      exports.allocator_free(addr);
+      return result;
+    },
+
+    setBreakpoint(bytecodeAddress: number) {
+      exports.mvm_dbg_setBreakpoint(vm, bytecodeAddress)
+    },
+
+    removeBreakpoint(bytecodeAddress: number) {
+      exports.mvm_dbg_removeBreakpoint(vm, bytecodeAddress)
+    },
   }
+
 
   function invokeHost(vm, hostFunctionID, out_vmpResult, vmpArgs, argCount) {
     const hostArgs: any[] = [];
