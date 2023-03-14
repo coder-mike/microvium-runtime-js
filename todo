@@ -8,3 +8,4 @@
   - Host functions
 - The Microvium library doesn't seem to work with linux for me.
 - Get rid of the relative import of microvium in tests (before first release)
+- Make sure Terser is still enabled

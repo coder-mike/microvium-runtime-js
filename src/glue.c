@@ -23,6 +23,7 @@ uint8_t engineMajorVersion = MVM_ENGINE_MAJOR_VERSION;
 
 extern mvm_TeError invokeHost(mvm_VM* vm, mvm_HostFunctionID hostFunctionID, mvm_Value* result, mvm_Value* args, uint8_t argCount);
 extern void importRequired(mvm_HostFunctionID hostFunctionID);
+extern void breakpointHit(mvm_VM* vm, uint16_t bytecodeAddress);
 
 mvm_TeError resolveImport(mvm_HostFunctionID hostFunctionID, void* context, mvm_TfHostFunction* out_hostFunction) {
   importRequired(hostFunctionID);
@@ -32,6 +33,10 @@ mvm_TeError resolveImport(mvm_HostFunctionID hostFunctionID, void* context, mvm_
 }
 
 const mvm_TfResolveImport pResolveImport = &resolveImport;
+
+mvm_TeError restore(mvm_VM** result, MVM_LONG_PTR_TYPE snapshotBytecode, size_t bytecodeSize) {
+  return mvm_restore(result, snapshotBytecode, bytecodeSize, NULL, resolveImport);
+}
 
 void initHandles() {
   // Add all the handles to the unusedHandles linked list
@@ -76,4 +81,8 @@ void release(mvm_VM* vm, mvm_Handle* handle) {
   mvm_releaseHandle(vm, handle);
   handle->_next = unusedHandles;
   unusedHandles = handle;
+}
+
+void setBreakpointCallback(mvm_VM* vm) {
+  mvm_dbg_setBreakpointCallback(vm, &breakpointHit);
 }

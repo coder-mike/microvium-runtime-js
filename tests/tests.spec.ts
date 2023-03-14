@@ -214,6 +214,38 @@ test('createSnapshot', async function () {
   assert.equal(vm2.exports[1](), 6);
 })
 
+test('breakpoint', async function () {
+  const source = `
+    const print = vmImport(1);
+    vmExport(1, () => {
+      print('Hello, ');
+      print('World!');
+    });
+  `;
+
+  let printOut = '';
+  const print = (s: string) => printOut += s;
+
+  let breakpointWasHit: number = undefined as any;
+  let printoutAtBreakpoint: string = undefined as any;
+  const breakpointHit = (a: number) => {
+    breakpointWasHit = a;
+    printoutAtBreakpoint = printOut;
+  }
+
+  const snapshot = compile(source, this.test!.title!);
+  const vm = await Runtime.restore(snapshot, { [1]: print }, { breakpointHit });
+
+  // See build/dbg-breakpoint.disassembly for the addresses. Here I'm
+  // breakpointing on the second call to `print`
+  vm.setBreakpoint(0x006f);
+
+  vm.exports[1]();
+  assert.equal(breakpointWasHit, 0x006F);
+  assert.equal(printoutAtBreakpoint, 'Hello, ');
+  assert.equal(printOut, 'Hello, World!');
+})
+
 function loadOnNode(source) {
   const exports: any = {};
   eval(`((vmExport) => {${source}})`)((k, v) => exports[k] = v);
@@ -226,6 +258,9 @@ function compile(sourceText: string, testName: string) {
 
   vm.evaluateModule({ sourceText });
   const snapshot = vm.createSnapshot();
+  const { disassembly } = Microvium.decodeSnapshot(snapshot);
+  fs.writeFileSync(`build/dbg-${testName.replace(/ /g, '-')}.disassembly`, disassembly);
+
 
   // Save the snapshot to a file, in case we need to debug.
   fs.writeFileSync(`build/dbg-${testName.replace(/ /g, '-')}-bytes.js`,

@@ -39,11 +39,15 @@ const TextDecoder_ = typeof require !== 'undefined'
 const textEncoder = new TextEncoder_();
 const textDecoder = new TextDecoder_();
 
+export interface RestoreOptions {
+  breakpointHit?(address: number): void;
+}
+
 export function useWasmModule(module: PromiseLike<WebAssembly.Module>) {
   modulePromise = module;
 }
 
-export async function restore(snapshot: ArrayLike<number>, imports: Imports) {
+export async function restore(snapshot: ArrayLike<number>, imports: Imports, opts?: RestoreOptions) {
 	const memory = new WebAssembly.Memory({ initial: 4, maximum: 4 });
 	const mem8 = new Uint8Array(memory.buffer);
 	const mem16 = new Uint16Array(memory.buffer);
@@ -79,7 +83,8 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports) {
         if (!(id in imports)) {
           throw new Error(`VM requires import ${id} but not provided`)
         }
-      }
+      },
+      breakpointHit: (vm, addr) => opts?.breakpointHit?.(addr)
 		}
 	};
 
@@ -91,7 +96,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports) {
     allocator_init,
     reserve_ram,
     reserve_rom,
-    mvm_restore,
+    restore,
     generalPurpose1,
     generalPurpose2,
     generalPurpose3,
@@ -132,15 +137,15 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports) {
 
   const requiredEngineVersion = `${readByte(romStart)}.${readByte(romStart + 2)}.0`;;
 
-  check(mvm_restore(
+  check(restore(
     generalPurpose1, // *result
     romStart, // snapshotBytecode
     snapshot.length, // bytecodeSize
-    0, // context
-    2, // resolveImport
   ));
 
   const vm = readWord(generalPurpose1);
+
+  exports.setBreakpointCallback(vm);
 
   const cachedExports: Exports = {};
   const cachedValueToVm = new WeakMap();

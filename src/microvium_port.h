@@ -43,3 +43,5 @@ extern void mvm_fatalError(int e);
 #define MVM_FATAL_ERROR(vm, e) (mvm_fatalError(e))
 
 #define MVM_LONG_PTR_TYPE void*
+
+#define MVM_INCLUDE_DEBUG_CAPABILITY 1
