@@ -15,7 +15,7 @@
           "--timeout",
           "999999",
           "--colors",
-          "--grep=\"createSnapshot\"",
+          "--grep=\"function\"",
           "${workspaceFolder}/test"
       ],
       // "runtimeArgs": ["--trace-warnings"],

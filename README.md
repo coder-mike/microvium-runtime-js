@@ -53,6 +53,8 @@ Plain objects and arrays are passed **out** of Microvium **by reference** -- the
 
 `Uint8Array` is passed out of Microvium not as a host `Uint8Array` but as a `MicroviumUint8Array` which has methods `slice` and `set` to read and write from it respectively.
 
+Functions and closures are be passed **out** of Microvium **by reference** and cannot be passed into Microvium at all. The VM may only access host functions that were acquired by `vmImport` prior to building the snapshot.
+
 
 ## Memory usage
 

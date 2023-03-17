@@ -98,3 +98,20 @@ Mostly I haven't found a good way to do debugging. The tests can only really run
 
 The best I've come up with is `./tests/debug-test.html`. Edit that file with the test you want to debug. It uses the unmodified wasm output from Clang and could in principle use source maps if I can one day figure out how to do that. It uses `WebAssembly.compileStreaming` instead of the default module from the base64 string, again to make it easier to debug. The unit tests use a `compile` function to compile snapshots, which also has the side effect of outputting the snapshot bytes to `./build/dbg-xxx-bytes.js` so the appropriate snapshot can be pasted into `./tests/debug-test.html`.
 
+## Membrane Caching, Handles, and Identity Preservation
+
+The C glue code allocates space for 2048 Microvium handles (about 8 bytes each) that the host can use to hold references to GC-allocated values in the VM. This includes objects and strings, etc.
+
+When the host calls into the VM, the translation of the arguments from the host to the VM may involve adding new allocations to the Microvium heap, such as for copying across strings or objects. These handles are released after the function call.
+
+If the host calls the VM with multiple arguments, such as `say('hello', 'world')`, the allocation of a later argument may trigger a GC collection which causes the allocation of the first argument to move, so this must be accounted for by using handles all the way until the very last moment before the call, where the handles are resolved to pass the raw values across the membrane.
+
+When the VM calls the host, the return value may similarly need to be allocated on the VM heap, but the handle for this is released immediately because when it crosses the boundary, Microvium will be responsible for tracking it.
+
+When an object is passed from the VM to the host, a proxy is created in the host. The proxy owns a handle to the corresponding object in the VM. When the host proxy is garbage collected, the handle must be freed as well, to allow the VM to free the corresponding object.
+
+If the host passes the same proxy back into the VM, the membrane must recognize that it's a VM object and so translate it to the corresponding handle. As mentioned earlier, the handle should only be resolved at the very last moment since the conversion of other arguments may trigger a GC cycle which moves things around.
+
+Unfortunately, if the same VM object is passed to the host multiple times, it will get a new proxy every time. This is because Microvium doesn't have a data structure like a `WeakMap` than can be used to cache the conversion information. We could maintain the identity by searching all the open handles, but this would be an expensive linear search, so instead I'm settling for the fact that translations from Microvium to the host are not necessarily identity-preserving.
+
+Functions are complicated. Closure functions behave like objects: they are GC-allocated and stateful. They follow the same rules as objects. VM functions (in the bytecode) are non-moving.

@@ -54,19 +54,66 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
   const readWord = address => mem16[address >>> 1];
   const readByte = address => mem8[address];
   const writeWord = (address, value) => mem16[address >>> 1] = value;
-  const objectProxyHandler = makeObjectProxyHandler();
   const tempBuffer = new Uint8Array(8);
   const tempFloat64Buffer = new Float64Array(tempBuffer.buffer);
 
-  class HandleWrapper {
-    constructor(private handle: number) {}
-    release() { release(vm, this.handle); }
-    get value() { return readWord(this.handle + 4); } // the second field inside the handle is the value it refers to
+  class Handle {
+    refCount = 1;
+    handle: number;
+    constructor(vmValue: number) {
+      this.handle = newHandle(vm, vmValue);
+      if (!this.handle) {
+        throw new Error('Microvium: runtime has run out of handles. This could happen if there are too many objects in the VM that are being referenced by live references in the host')
+      }
+      assert(this.value === vmValue);
+    }
+    addRef() { this.refCount++; }
+    release() {
+      assert(this.handle);
+      if (--this.refCount === 0) {
+        vmReleaseHandle(vm, this.handle);
+        this.handle = 0;
+      }
+    }
+    get value() { return readWord(this.handle); } // the first field inside the handle is the value it refers to
     get _dbgValue() { return valueToHost(this.value); }
   }
 
+  class ObjectProxyHandler implements ProxyHandler<{}> {
+    constructor (private handle: Handle) {}
+
+    get(target: any, p: string | symbol, receiver: any): any {
+      if (typeof p !== 'string') return undefined;
+
+      // The property name may need to be copied into the VM, but it might also
+      // be resolved to one of the strings in ROM. The interned strings in the
+      // snapshot are added to the cachedValueToVm at startup.
+      // TODO: Test both cases
+      const vmPropName = valueToVM(p);
+
+      // The getProperty function requires a live pointer to the string value,
+      // which stays updated over a GC cycle. If we're referencing a handle
+      let pPropertyName: number;
+      if (vmPropName instanceof Handle) {
+        // If it's a handle, then the handle pointer is also a pointer to the property name
+        pPropertyName = vmPropName.handle;
+      } else {
+        // Otherwise, the property must in ROM and so it will be stable across
+        // GC collections already. So we copy it into gp2.
+        writeWord(gp2, vmPropName);
+      }
+      const err = getProperty(vm, this.handle.handle, gp2, gp3);
+      check(err);
+      const vmPropValue = readWord(gp3);
+      const hostPropValue = valueToHost(vmPropValue);
+
+      return hostPropValue;
+    }
+  }
+
   // This implementation assumes that the imports don't change over time.
-  Object.freeze(imports);
+  imports = { ...imports };
+  const idByImport = new Map([...Object.entries(imports)].map(([id, f]) => [f, id]));
 
 	const wasmImports = {
 		env: {
@@ -105,11 +152,13 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     mvm_call,
     mvm_newNumber,
     argsTemp,
-    alloc,
-    release,
+    mvm_gc_allocateWithHeader,
+    vmReleaseHandle,
     initHandles,
     engineMinorVersion,
     engineMajorVersion,
+    newHandle,
+    getProperty,
   } = exports;
   const engineVersion = `${readByte(engineMajorVersion.value)}.${readByte(engineMinorVersion.value)}.0`;
 
@@ -148,8 +197,22 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
   exports.setBreakpointCallback(vm);
 
   const cachedExports: Exports = {};
-  const cachedValueToVm = new WeakMap();
+
+  // The 2 different caches here: one targets handles, which are weakly held by
+  // the map and should also be added to the handleFinalizationRegistry so that
+  // when the source object is collected then the handle is also released. The
+  // other cache targets ROM values which last forever, so it doesn't hurt to
+  // hold a strong reference to the key. ROM values may include functions and
+  // primitives.
+  const cachedValueToVm1 = new WeakMap<Object, Handle>();
+  const cachedValueToVm2 = new Map<any, number>();
+
   const cachedValueToHost = new Map<number, any>();
+
+  const handleFinalizationRegistry = new FinalizationRegistry<Handle>(releaseHandle);
+
+  cacheInternedStrings();
+  cacheWellKnownValues();
 
   return {
     engineVersion,
@@ -209,6 +272,9 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     },
   }
 
+  function releaseHandle(valueHeld: Handle) {
+    valueHeld.release()
+  }
 
   function invokeHost(vm, hostFunctionID, out_vmpResult, vmpArgs, argCount) {
     const hostArgs: any[] = [];
@@ -225,7 +291,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     // We can release the handle immediately because we're about to pass the
     // value back to the VM and no GC cycle can happen between now and when the
     // VM uses the returned value.
-    if (vmResult instanceof HandleWrapper) {
+    if (vmResult instanceof Handle) {
       const value = vmResult.value;
       vmResult.release();
       vmResult = value;
@@ -249,23 +315,26 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     assert((size & 0xFFF) === size);
     assert((typeCode & 0xF) === typeCode);
 
+    const value = mvm_gc_allocateWithHeader(vm, size, typeCode);
     // Note: the VM returns a Microvium handle because handles are stable across
     // garbage collection cycles. The glue code has 2048 available handles as of
     // this writing.
-    const handle = alloc(vm, size, typeCode);
-    if (!handle) {
-      throw new Error('Microvium: runtime has run out of handles. This could happen if there are too many objects in the VM that are being referenced by live references in the host')
-    }
-    // Pointer to the allocated memory in the GC heap
-    const ptr = readWord(generalPurpose1);
-    const handleWrapper = new HandleWrapper(handle);
-    assert(handleWrapper.value === ptr);
-
-    return handleWrapper;
+    return new Handle(value);
   }
 
-  // Returns an mvm_Value (number) or a HandleWrapper
-  function valueToVM(hostValue) {
+  // Returns an mvm_Value (number) or a Handle. If a Handle, the caller is
+  // responsible for releasing it.
+  function valueToVM(hostValue: any): number | Handle {
+    if (cachedValueToVm1.has(hostValue)) {
+      const result = cachedValueToVm1.get(hostValue)!;
+      result.addRef();
+      return result;
+    }
+    if (cachedValueToVm2.has(hostValue)) {
+      return cachedValueToVm2.get(hostValue)!;
+    }
+
+
     switch (typeof hostValue) {
       case 'undefined': return 0x01;
       case 'boolean': return hostValue ? 0x09 : 0x0D;
@@ -295,19 +364,30 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
         if (hostValue === null) return 0x05;
         break;
       }
+      case 'function': {
+        const importId = idByImport.get(hostValue);
+        if (importId !== undefined) {
+          const hostFunc = gcAllocate(2, 0x6 /* TC_REF_HOST_FUNC */);
+          writeWord(hostFunc.value, importId);
+          return hostFunc;
+        }
+        return notImplemented();
+      }
 
     }
     // TODO
-    notImplemented();
+    return notImplemented();
   }
 
   function valueToHost(vmValue) {
-    // TODO: Remember: for pointers to ROM, we don't need to wrap with a handle
-
     // Int14
     if ((vmValue & 3) === 3) {
       // Use the 16th bit as the sign bit
       return (vmValue << 16) >> 18;
+    }
+
+    if (cachedValueToHost.has(vmValue)) {
+      return cachedValueToHost.get(vmValue)!;
     }
 
     let address;
@@ -319,21 +399,9 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
 
     // Bytecode-mapped pointer
     else if ((vmValue & 3) === 1) {
-      // Well known values
-      if (vmValue <= 0x25) {
-        switch (vmValue) {
-          case 0x01: return undefined;
-          case 0x05: return null;
-          case 0x09: return true;
-          case 0x0D: return false;
-          case 0x11: return NaN;
-          case 0x15: return -0;
-          case 0x19: return undefined;
-          case 0x1D: return 'length';
-          case 0x21: return '__proto__';
-          case 0x25: return noOpFunc;
-        }
-      }
+      // Note: Well-known values are part of the cachedValueToHost so it should
+      // not get to this point in the code
+      assert(vmValue > 0x25);
 
       // TODO Indirection through handles
 
@@ -341,21 +409,18 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       address = romStart + (vmValue & 0xFFFC);
     }
 
-    if (address >= romStart && cachedValueToHost.has(address)) {
-      return cachedValueToHost.get(address)!;
-    }
-
     const result = addressValueToHost(vmValue, address);
 
-    // Cache ROM values (TODO: I haven't thought through RAM values yet)
+    // Cache ROM values
     if (address >= romStart) {
-      cachedValueToHost.set(address, result);
+      cachedValueToHost.set(vmValue, result);
+      cachedValueToVm2.set(result, vmValue);
     }
 
     return result;
   }
 
-  function addressValueToHost(vmValue, address) {
+  function addressValueToHost(vmValue: number, address: number): any {
     const headerWord = readWord(address - 2);
     const typeCode = headerWord >>> 12;
     const size = headerWord & 0xFFF;
@@ -378,18 +443,22 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
         const temp = new Uint8Array(memory.buffer, address, size - 1);
         return textDecoder.decode(temp);
       }
-      // Function
+      // TC_REF_FUNCTION
       case 0x5: {
-        return (...hostArgs: any[]) => {
+        // TODO: Maybe this should technically be a proxy not just a wrapper
+        // function. Firstly, it will look better in the debugger. Secondly, we
+        // can throw errors when a user tries to set properties on it etc. TODO:
+        // this logic can be factored out to work for closures as well.
+        const f = (...hostArgs: any[]) => {
           // We only have space for 64 arguments in argsTemp
           const maxArgs = 64;
           if (hostArgs.length > maxArgs) {
             throw new Error(`Too many arguments (Microvium WASM runtime library only supports ${maxArgs} arguments)`)
           }
-          let argHandlesToRelease: HandleWrapper[] | undefined;
+          let argHandlesToRelease: Handle[] | undefined;
           for (let i = 0; i < hostArgs.length; i++) {
             let vmArg = valueToVM(hostArgs[i]);
-            if (vmArg instanceof HandleWrapper) {
+            if (vmArg instanceof Handle) {
               argHandlesToRelease ??= [];
               argHandlesToRelease.push(vmArg);
               vmArg = vmArg.value;
@@ -405,6 +474,12 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
           const hostResult = valueToHost(vmResult);
           return hostResult;
         }
+
+        // These functions are in ROM, so the value can't shift during GC, so we
+        // can cache the value directly rather than through a handle.
+        cachedValueToVm2.set(f, vmValue);
+
+        return f;
       }
       // Host function
       case 0x6: {
@@ -417,6 +492,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
         // can move in memory. If we wanted it to be mutable, we'd have to
         // implement the whole Uint8Array interface on top of a Microvium
         // handle.
+        // TODO: This doesn't match the plan as documented in the readme.
         return new Uint8Array(memory.buffer.slice(address, size - 1));
       }
       // Class
@@ -426,16 +502,24 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
 
       // Object
       case 0xC: {
-        return notImplemented();
-        // return new Proxy({}, objectProxyHandler);
+        const handle = new Handle(vmValue);
+        const hostValue = new Proxy({}, new ObjectProxyHandler(handle));
+        // When the proxy is freed, the handle should also be released.
+        handleFinalizationRegistry.register(hostValue, handle);
+        // If the host passes this object back to the VM, it will be passed
+        // by-reference. Since the object can move, we need to cache it by the
+        // handle. We don't need to `addRef` on the handle here because its
+        // lifetime is already locked to the hostValue which is the cache key.
+        cachedValueToVm1.set(hostValue, handle);
+
+        // Note: we can't add it to cachedValueToHost because we have nothing
+        // stable to cache it on (the vmValue changes over GC cycles).
+
+        return hostValue;
       }
 
-      default: notImplemented();
+      default: return notImplemented();
     }
-  }
-
-  function makeObjectProxyHandler() {
-
   }
 
   function check(errorCode: number) {
@@ -453,4 +537,40 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     throw new Error(`Microvium Error: ${desc}`)
   }
 
+  function cacheInternedStrings() {
+    // This function copies the string intern table into the membrane cache so
+    // that property keys do not need to be physically copied across the
+    // membrane.
+
+    const assumedVersion = '7.7.0';
+    if (engineVersion !== assumedVersion) {
+      throw new Error(`The following code was written against engine version ${assumedVersion}. If this has changed, please check the logic still applies and then update the \`assumedVersion\` variable above.`);
+    }
+    // This is horribly hacky but should be pretty efficient
+    const stringTableStart = romStart + readWord(romStart + 20);
+    const stringTableEnd = romStart + readWord(romStart + 22);
+
+    let cursor = stringTableStart;
+    while (cursor < stringTableEnd) {
+      const vmValue = readWord(cursor);
+      // Just the act of converting it will cache it
+      const hostValue = valueToHost(vmValue);
+      assert(cachedValueToVm2.has(hostValue));
+      assert(cachedValueToHost.has(vmValue));
+      cursor += 2;
+    }
+  }
+
+  function cacheWellKnownValues() {
+    cachedValueToHost.set(0x01, undefined);
+    cachedValueToHost.set(0x05, null);
+    cachedValueToHost.set(0x09, true);
+    cachedValueToHost.set(0x0D, false);
+    cachedValueToHost.set(0x11, NaN);
+    cachedValueToHost.set(0x15, -0);
+    cachedValueToHost.set(0x19, undefined);
+    cachedValueToHost.set(0x1D, 'length');
+    cachedValueToHost.set(0x21, '__proto__');
+    cachedValueToHost.set(0x25, noOpFunc);
+  }
 }

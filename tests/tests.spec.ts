@@ -246,6 +246,57 @@ test('breakpoint', async function () {
   assert.equal(printOut, 'Hello, World!');
 })
 
+test('passing functions', async function () {
+  // This tests the passing of function-types between the host and VM
+
+  const source = `
+    const bar = vmImport(1);
+
+    const foo = (a, b) => a + b;
+    const getFoo = () => foo;
+    const adder = a => b => a + b; // Curried adder
+    const call = (f, x, y) => f(x, y);
+    const getBar = () => bar;
+
+    vmExport(1, getFoo);
+    vmExport(2, adder);
+    vmExport(3, call);
+    vmExport(4, getBar);
+  `;
+
+  const bar = () => {}
+
+  const snapshot = compile(source, this.test!.title!);
+  const vm = await Runtime.restore(snapshot, {
+    [1]: bar
+  });
+  const { [1]: getFoo, [2]: adder, [3]: call, [4]: getBar } = vm.exports;
+
+  // Passing a VM function out of the VM (TC_REF_FUNCTION)
+  const foo = getFoo();
+  assert.equal(typeof foo, 'function');
+  assert.equal(foo(1,2), 3);
+
+  // Passing a VM function into the VM (TC_REF_FUNCTION)
+  // assert.equal(call(foo, 5, 10), 15);
+
+
+  // Passing a closure out of the VM (TC_REF_CLOSURE)
+  //const add = adder(1);
+  //assert.equal(typeof add, 'function');
+  //assert.equal(add(2), 3);
+
+  // Passing a closure into the VM (TC_REF_CLOSURE)
+
+  // Passing a host function into the VM (TC_REF_HOST_FUNC)
+
+  // Passing a host function out of the VM (TC_REF_HOST_FUNC)
+
+
+
+
+});
+
 function loadOnNode(source) {
   const exports: any = {};
   eval(`((vmExport) => {${source}})`)((k, v) => exports[k] = v);

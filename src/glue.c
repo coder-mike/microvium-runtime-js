@@ -25,6 +25,11 @@ extern mvm_TeError invokeHost(mvm_VM* vm, mvm_HostFunctionID hostFunctionID, mvm
 extern void importRequired(mvm_HostFunctionID hostFunctionID);
 extern void breakpointHit(mvm_VM* vm, uint16_t bytecodeAddress);
 
+// Implemented in Microvium
+void* mvm_gc_allocateWithHeader(mvm_VM* vm, uint16_t sizeBytes, uint8_t typeCode);
+mvm_TeError getProperty(mvm_VM* vm, mvm_Value* pObjectValue, mvm_Value* pPropertyName, mvm_Value* out_propertyValue);
+mvm_TeError setProperty(mvm_VM* vm, mvm_Value* pOperands);
+
 mvm_TeError resolveImport(mvm_HostFunctionID hostFunctionID, void* context, mvm_TfHostFunction* out_hostFunction) {
   importRequired(hostFunctionID);
   // All exports resolve to `invokeHost`
@@ -48,35 +53,18 @@ void initHandles() {
   unusedHandles = next;
 }
 
-// Implemented in Microvium
-void* mvm_gc_allocateWithHeader(mvm_VM* vm, uint16_t sizeBytes, uint8_t typeCode);
-
-// Returns the handle (or null) and writes the memory address to generalPurpose1
-mvm_Handle* alloc(mvm_VM* vm, uint16_t sizeBytes, uint8_t typeCode) {
-  // Allocations are attached to a handle so they don't get GC'd. For example,
-  // if the host is passing multiple arguments to a function call, and the
-  // allocation of the second argument causes a GC run that would otherwise
-  // collect the first argument.
+mvm_Handle* newHandle(mvm_VM* vm, mvm_Value value) {
   mvm_Handle* handle = unusedHandles;
   unusedHandles = unusedHandles->_next;
   if (!handle) return 0;
 
   mvm_initializeHandle(vm, handle);
-  generalPurpose1 = mvm_gc_allocateWithHeader(vm, sizeBytes, typeCode);
-  // This makes some assumptions. Firstly, allocator.c is allocating everything
-  // in the first page of memory, so pointers are all 16 bit. Also the port file
-  // has MVM_RAM_PAGE_ADDR as 0 and MVM_USE_SINGLE_RAM_PAGE set, so that
-  // mvm_Value pointers are encoded identically to the physical pointer. This
-  // also means that the last bit is zero because pointers are 2-byte aligned.
-  // This makes `ShortPtr_encode` a no-op, so we don't need to call it (and I
-  // can't call it from here anyway because it's static inline to Microvium).
-  assert(((uint16_t)generalPurpose1 & 0xFFFE) == (uint16_t)generalPurpose1);
-  mvm_handleSet(handle, (uint16_t)generalPurpose1);
+  mvm_handleSet(handle, value);
 
   return handle;
 }
 
-void release(mvm_VM* vm, mvm_Handle* handle) {
+void vmReleaseHandle(mvm_VM* vm, mvm_Handle* handle) {
   if (!handle) return;
   mvm_releaseHandle(vm, handle);
   handle->_next = unusedHandles;
@@ -86,3 +74,9 @@ void release(mvm_VM* vm, mvm_Handle* handle) {
 void setBreakpointCallback(mvm_VM* vm) {
   mvm_dbg_setBreakpointCallback(vm, &breakpointHit);
 }
+
+mvm_TeError getProp(mvm_VM* vm, mvm_Handle* pObjectValue, mvm_Handle* pPropertyName, mvm_Handle* out_propertyValue) {
+  return getProperty(vm, &pObjectValue->_value, &pPropertyName->_value, &out_propertyValue->_value);
+}
+
+//mvm_TeError setProperty(mvm_VM* vm, mvm_Value* pOperands);
