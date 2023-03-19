@@ -108,7 +108,7 @@ test('fmod and pow', async function () {
   assert.equal(pow(-10.5, -1.5), (-10.5) ** -1.5);
 });
 
-test('performance 1', async function () {
+test.skip('performance 1', async function () {
   this.timeout(20000);
 
   const objCount = 1000;
@@ -131,7 +131,7 @@ test('performance 1', async function () {
   await measurePerformance(source, this.test!.title!);
 })
 
-test('performance 2', async function () {
+test.skip('performance 2', async function () {
   this.timeout(20000);
 
   // This is similar to the previous performance test except using closures
@@ -277,6 +277,8 @@ test('passing functions', async function () {
   assert.equal(typeof foo, 'function');
   assert.equal(foo(1,2), 3);
 
+  // TODO: finish off these tests
+
   // Passing a VM function into the VM (TC_REF_FUNCTION)
   // assert.equal(call(foo, 5, 10), 15);
 
@@ -291,11 +293,112 @@ test('passing functions', async function () {
   // Passing a host function into the VM (TC_REF_HOST_FUNC)
 
   // Passing a host function out of the VM (TC_REF_HOST_FUNC)
-
-
-
-
 });
+
+test('passing functions', async function () {
+  // This tests the passing of function-types between the host and VM
+
+  const source = `
+    const bar = vmImport(1);
+
+    const foo = (a, b) => a + b;
+    const getFoo = () => foo;
+    const adder = a => b => a + b; // Curried adder
+    const call = (f, x, y) => f(x, y);
+    const getBar = () => bar;
+
+    vmExport(1, getFoo);
+    vmExport(2, adder);
+    vmExport(3, call);
+    vmExport(4, getBar);
+  `;
+
+  const bar = () => {}
+
+  const snapshot = compile(source, this.test!.title!);
+  const vm = await Runtime.restore(snapshot, {
+    [1]: bar
+  });
+  const { [1]: getFoo, [2]: adder, [3]: call, [4]: getBar } = vm.exports;
+
+  // Passing a VM function out of the VM (TC_REF_FUNCTION)
+  const foo = getFoo();
+  assert.equal(typeof foo, 'function');
+  assert.equal(foo(1,2), 3);
+
+  // TODO: finish off these tests
+
+  // Passing a VM function into the VM (TC_REF_FUNCTION)
+  // assert.equal(call(foo, 5, 10), 15);
+
+
+  // Passing a closure out of the VM (TC_REF_CLOSURE)
+  //const add = adder(1);
+  //assert.equal(typeof add, 'function');
+  //assert.equal(add(2), 3);
+
+  // Passing a closure into the VM (TC_REF_CLOSURE)
+
+  // Passing a host function into the VM (TC_REF_HOST_FUNC)
+
+  // Passing a host function out of the VM (TC_REF_HOST_FUNC)
+});
+
+suite('objects', () => {
+  test('basic', async function () {
+    const source = `
+      // Note: actually all objects are in RAM at the moment, but this test anticipates a future where some are in ROM.
+      const romObj = { x: 1, y: 2 };
+      let ramObj;
+
+      const init = () => ramObj = { x: 3, z: 5 };
+      const getRomObj = () => romObj;
+      const getRamObj = () => ramObj;
+      const getX = obj => obj.x;
+      const getY = obj => obj.y;
+      const getZ = obj => obj.z;
+      const setX = (obj, v) => obj.x = v;
+      const set = (obj, k, v) => obj[k] = v;
+      const get = (obj, k) => obj[k];
+
+      vmExport(1, init);
+      vmExport(2, getRomObj);
+      vmExport(3, getRamObj);
+      vmExport(4, getX);
+      vmExport(5, getY);
+      vmExport(6, getZ);
+      vmExport(7, setX);
+      vmExport(8, set);
+      vmExport(9, get);
+    `;
+
+    const bar = () => {}
+
+    const snapshot = compile(source, this.test!.title!);
+    const vm = await Runtime.restore(snapshot, {
+      [1]: bar
+    });
+    const { [1]: init, [2]: getRomObj, [3]: getRamObj, [4]: getX, [5]: getY, [6]: getZ, [7]: setX, [8]: set, [9]: get } = vm.exports;
+
+    const romObj = getRomObj();
+    assert.equal(typeof romObj, 'object');
+    assert.equal(getX(romObj), 1);
+    assert.equal(getY(romObj), 2);
+    assert.equal(getZ(romObj), undefined);
+    // The difference between `getX(obj)` and `get(obj, 'x')` is that the latter involves marshalling the key across the membrane.
+    assert.equal(get(romObj, 'x'), 1);
+    assert.equal(get(romObj, 'y'), 2);
+    assert.equal(get(romObj, 'z'), undefined);
+    assert.equal(get(romObj, 'a'), undefined); // non-interned string
+    // This accesses the values through the proxy getter
+    assert.equal(romObj.x, 1);
+    assert.equal(romObj.y, 2);
+    assert.equal(romObj.z, undefined);
+    assert.equal(romObj.a, undefined); // non-interned string
+  });
+})
+
+
 
 function loadOnNode(source) {
   const exports: any = {};

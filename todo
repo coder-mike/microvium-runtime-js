@@ -10,3 +10,4 @@
 - Go over all the remaining TODOs in the code
 - Get rid of the relative import of microvium in tests (before first release)
 - Make sure Terser is still enabled
+- Unskip the performance tests

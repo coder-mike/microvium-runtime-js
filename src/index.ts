@@ -95,17 +95,23 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       // which stays updated over a GC cycle. If we're referencing a handle
       let pPropertyName: number;
       if (vmPropName instanceof Handle) {
+        // TODO: test this path
+
         // If it's a handle, then the handle pointer is also a pointer to the property name
         pPropertyName = vmPropName.handle;
       } else {
-        // Otherwise, the property must in ROM and so it will be stable across
-        // GC collections already. So we copy it into gp2.
+        // Otherwise, the property must be in ROM and so it will be stable
+        // across GC collections already. So we copy it into gp2 so we can get a
+        // pointer to it.
         writeWord(gp2, vmPropName);
+        pPropertyName = gp2;
       }
-      const err = getProperty(vm, this.handle.handle, gp2, gp3);
+      const err = getProperty(vm, this.handle.handle, pPropertyName, gp3);
       check(err);
       const vmPropValue = readWord(gp3);
       const hostPropValue = valueToHost(vmPropValue);
+
+      if (vmPropName instanceof Handle) vmPropName.release();
 
       return hostPropValue;
     }
@@ -455,21 +461,22 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
           if (hostArgs.length > maxArgs) {
             throw new Error(`Too many arguments (Microvium WASM runtime library only supports ${maxArgs} arguments)`)
           }
-          let argHandlesToRelease: Handle[] | undefined;
-          for (let i = 0; i < hostArgs.length; i++) {
-            let vmArg = valueToVM(hostArgs[i]);
-            if (vmArg instanceof Handle) {
-              argHandlesToRelease ??= [];
-              argHandlesToRelease.push(vmArg);
-              vmArg = vmArg.value;
-            }
+          // Note: we need to convert all the arguments before copying the first
+          // value into VM memory, because it's possible for the conversion of
+          // any arg to trigger a GC collection that invalidates the value of an
+          // earlier arg.
+          const converted = hostArgs.map(valueToVM);
+
+          for (let i = 0; i < converted.length; i++) {
+            let vmArg = converted[i];
+            if (vmArg instanceof Handle) vmArg = vmArg.value;
             writeWord(pArgsTemp + i * 2, vmArg);
           }
           assert(address >= romStart); // Functions are stored in ROM so we don't need a handle
           check(mvm_call(vm, vmValue, gp2, pArgsTemp, hostArgs.length));
           const vmResult = readWord(gp2);
-          if (argHandlesToRelease) {
-            for (const handle of argHandlesToRelease) handle.release();
+          for (const arg of converted) {
+            if (arg instanceof Handle) arg.release();
           }
           const hostResult = valueToHost(vmResult);
           return hostResult;
