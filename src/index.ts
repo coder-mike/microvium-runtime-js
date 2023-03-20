@@ -124,6 +124,35 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       return hostPropValue;
     }
 
+    set(target: any, p: string | symbol, value: any, receiver: any): boolean {
+      if (typeof p !== 'string') return false;
+
+      // The property name may need to be copied into the VM, but it might also
+      // be resolved to one of the strings in ROM. The interned strings in the
+      // snapshot are added to the cachedValueToVm at startup.
+      const vmPropName = valueToVM(p);
+
+      let pPropertyName: number;
+      if (vmPropName instanceof Handle) {
+        // TODO: test this path
+
+        // If it's a handle, then the handle pointer is also a pointer to the property name
+        pPropertyName = vmPropName.handle;
+      } else {
+        // Otherwise, the property must be in ROM and so it will be stable
+        // across GC collections already. So we copy it into gp2 so we can get a
+        // pointer to it.
+        writeWord(gp2, vmPropName);
+        pPropertyName = gp2;
+      }
+
+      const err = setProperty(vm, generalPurposeHandle1.handle, pPropertyName, generalPurposeHandle1.handle);
+      check(err);
+
+      if (vmPropName instanceof Handle) vmPropName.release();
+
+    }
+
   }
 
   // This implementation assumes that the imports don't change over time.

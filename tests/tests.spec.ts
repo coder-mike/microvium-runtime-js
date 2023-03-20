@@ -346,7 +346,6 @@ test('passing functions', async function () {
 
 test('objects-basic', async function () {
   const source = `
-    // Note: actually all objects are in RAM at the moment, but this test anticipates a future where some are in ROM.
     const romObj = { x: 1, y: 2 };
     let ramObj;
 
@@ -389,11 +388,37 @@ test('objects-basic', async function () {
   assert.equal(get(romObj, 'y'), 2);
   assert.equal(get(romObj, 'z'), undefined);
   assert.equal(get(romObj, 'a'), undefined); // non-interned string
-  // This accesses the values through the proxy getter
+  // This accesses the values through the proxy getter. This directly calls Microvium's getProperty function.
   assert.equal(romObj.x, 1);
   assert.equal(romObj.y, 2);
   assert.equal(romObj.z, undefined);
   assert.equal(romObj.a, undefined); // non-interned string
+
+  // Initialize the ramObj
+  init();
+
+  // Do all the same/similar tests again with the ramObj. I.e. an object create
+  // after the snapshot rather than before.
+  const ramObj = getRamObj();
+  assert.equal(typeof ramObj, 'object');
+  assert.equal(getX(ramObj), 3);
+  assert.equal(getY(ramObj), undefined);
+  assert.equal(getZ(ramObj), 5);
+  assert.equal(get(ramObj, 'x'), 3);
+  assert.equal(get(ramObj, 'y'), undefined);
+  assert.equal(get(ramObj, 'z'), 5);
+  assert.equal(get(ramObj, 'a'), undefined); // non-interned string
+  assert.equal(ramObj.x, 3);
+  assert.equal(ramObj.y, undefined);
+  assert.equal(ramObj.z, 5);
+  assert.equal(ramObj.a, undefined); // non-interned string
+
+  assert.equal(setX(ramObj, 10), 10);
+  assert.equal(ramObj.x, 10);
+  assert.equal(set(ramObj, 'x', 20), 20);
+  assert.equal(ramObj.x, 20);
+  ramObj.x = 30;
+  assert.equal(ramObj.x, 30);
 });
 
 
