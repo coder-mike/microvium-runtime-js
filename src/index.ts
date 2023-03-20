@@ -115,6 +115,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
 
       return hostPropValue;
     }
+
   }
 
   // This implementation assumes that the imports don't change over time.
@@ -219,6 +220,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
 
   cacheInternedStrings();
   cacheWellKnownValues();
+  cacheImports(); // ? maybe. Or cached on-demand
 
   return {
     engineVersion,

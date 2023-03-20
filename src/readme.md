@@ -104,14 +104,30 @@ The C glue code allocates space for 2048 Microvium handles (about 8 bytes each) 
 
 When the host calls into the VM, the translation of the arguments from the host to the VM may involve adding new allocations to the Microvium heap, such as for copying across strings or objects. These handles are released after the function call.
 
-If the host calls the VM with multiple arguments, such as `say('hello', 'world')`, the allocation of a later argument may trigger a GC collection which causes the allocation of the first argument to move, so this must be accounted for by using handles all the way until the very last moment before the call, where the handles are resolved to pass the raw values across the membrane.
+If the host calls the VM with multiple arguments, such as `say('hello', 'world')`, the allocation of a later argument may trigger a GC collection which causes the memory of the first argument to move, so this must be accounted for by using handles all the way until the very last moment before the call, where the handles are resolved to pass the raw values across the membrane.
 
 When the VM calls the host, the return value may similarly need to be allocated on the VM heap, but the handle for this is released immediately because when it crosses the boundary, Microvium will be responsible for tracking it.
 
-When an object is passed from the VM to the host, a proxy is created in the host. The proxy owns a handle to the corresponding object in the VM. When the host proxy is garbage collected, the handle must be freed as well, to allow the VM to free the corresponding object.
+When an object is passed from the VM to the host, a proxy is created in the host. The proxy owns a handle to the corresponding object in the VM. When the host proxy is garbage collected, the handle must be freed as well, to allow the VM to free the corresponding object. This is done using a finalization registry.
 
-If the host passes the same proxy back into the VM, the membrane must recognize that it's a VM object and so translate it to the corresponding handle. As mentioned earlier, the handle should only be resolved at the very last moment since the conversion of other arguments may trigger a GC cycle which moves things around.
+If the host passes the same proxy back into the VM, the membrane must recognize that it's a VM object and so translate it to the corresponding handle. This is done using a `WeakMap` table called `cachedValueToVm1`, mapping proxies to their corresponding handle. The handles in this table are only accessible so long as the key is live, which guarantees that the handle is not garbage collected.
 
-Unfortunately, if the same VM object is passed to the host multiple times, it will get a new proxy every time. This is because Microvium doesn't have a data structure like a `WeakMap` than can be used to cache the conversion information. We could maintain the identity by searching all the open handles, but this would be an expensive linear search, so instead I'm settling for the fact that translations from Microvium to the host are not necessarily identity-preserving.
+As mentioned earlier, the handle should only be resolved at the very last moment since the conversion of other arguments may trigger a GC cycle which moves things around. During the call, the handle is owned by both the proxy and the call machinery, so handles are reference counted.
 
-Functions are complicated. Closure functions behave like objects: they are GC-allocated and stateful. They follow the same rules as objects. VM functions (in the bytecode) are non-moving.
+Unfortunately, if the same VM object is passed to the host multiple times, it will get a new proxy every time. This is because Microvium doesn't have a data structure like a `WeakMap` that can be used to cache the conversion information. We could maintain the identity by searching all the open handles, but this would be an expensive linear search, so instead I'm settling for the fact that translations from Microvium to the host are not necessarily identity-preserving.
+
+Functions are more complicated. Closure functions behave like objects: they are GC-allocated and stateful. They follow the same rules as objects - the are marshalled to the host by-reference with a wrapper proxy which owns a handle. They appear in the `cachedValueToVm1` table so that if/when they're transferred back to the VM, the original VM value is restored via the handle.
+
+VM functions (in the bytecode) are non-moving so they aren't associated with a handle. The are cached in `cachedValueToVm2` which is a `Map` rather than a `WeakMap`, primarily so that it can also map strings and other ROM allocations.
+
+On the topic of strings, strings in the ROM internal table are also cached in `cachedValueToVm2` at startup so that translation of host strings to VM strings can be efficient when the string is a property key or other well-known string (e.g. strings used as enum values etc).
+
+Host function references in the VM (`TC_REF_HOST_FUNC`) must refer to a function in the host which is in the import table. When passed to the host, these are unwrapped to their original host function value and added to the `cachedValueToVm1` table with an allocated handle (TODO). The reason to use a handle is that `TC_REF_HOST_FUNC` is a heap-allocated type, so the target can move.
+
+Going the other direction, if a function is passed from the host to the VM, it will:
+
+  1. First check `cachedValueToVm1` which will find any pre-existing `TC_REF_HOST_FUNC` functions previously passed out of the VM.
+  2. Then check `cachedValueToVm2` which will find any VM bytecode functions that have been passed out of the VM.
+  3. The it will check the import table (TODO). If the function is an import but was not found by (1), then we can allocate a new `TC_REF_HOST_FUNC` and add it to `cachedValueToVm1` for future.
+  4. Otherwise, it will throw. Arbitrary host functions can't be passed to the VM at the moment because there is currently no way of referencing them from the VM runtime. In future, it could probably be done using `TC_REF_VIRTUAL`, but this isn't implemented yet.
+
