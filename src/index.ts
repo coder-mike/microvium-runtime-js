@@ -16,6 +16,7 @@ export default {
   restore
 }
 
+const VM_VALUE_UNDEFINED = 1;
 const microviumWasmRaw = globalThis.atob(microviumWasmBase64);
 const rawLength = microviumWasmRaw.length;
 const microviumWasmBytes = new Uint8Array(new ArrayBuffer(rawLength));
@@ -76,6 +77,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       }
     }
     get value() { return readWord(this.handle); } // the first field inside the handle is the value it refers to
+    set value(value: number) { writeWord(this.handle, value); }
     get _dbgValue() { return valueToHost(this.value); }
   }
 
@@ -106,9 +108,15 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
         writeWord(gp2, vmPropName);
         pPropertyName = gp2;
       }
-      const err = getProperty(vm, this.handle.handle, pPropertyName, gp3);
+
+      // Note: `getProperty` trashes `generalPurposeHandle1.handle`, so we can't
+      // pass our owned handle directly, but we can use this temporary handle.
+      generalPurposeHandle1.value = this.handle.value;
+
+      const err = getProperty(vm, generalPurposeHandle1.handle, pPropertyName, generalPurposeHandle1.handle);
       check(err);
-      const vmPropValue = readWord(gp3);
+      const vmPropValue = generalPurposeHandle1.value;
+      generalPurposeHandle1.value = VM_VALUE_UNDEFINED;
       const hostPropValue = valueToHost(vmPropValue);
 
       if (vmPropName instanceof Handle) vmPropName.release();
@@ -220,7 +228,9 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
 
   cacheInternedStrings();
   cacheWellKnownValues();
-  cacheImports(); // ? maybe. Or cached on-demand
+  // cacheImports(); // TODO ? maybe. Or cached on-demand
+
+  const generalPurposeHandle1 = new Handle(VM_VALUE_UNDEFINED);
 
   return {
     engineVersion,

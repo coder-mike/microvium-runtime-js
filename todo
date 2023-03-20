@@ -1,3 +1,5 @@
+# To Do
+
 - I've introduced a bug into Microvium on the `wasm` branch that needs to be fixed.
 - Support for passing arguments/return values of:
   - Closures (by handle)
@@ -11,3 +13,4 @@
 - Get rid of the relative import of microvium in tests (before first release)
 - Make sure Terser is still enabled
 - Unskip the performance tests
+- Check that terser is enabled

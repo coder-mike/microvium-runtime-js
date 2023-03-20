@@ -98,6 +98,8 @@ Mostly I haven't found a good way to do debugging. The tests can only really run
 
 The best I've come up with is `./tests/debug-test.html`. Edit that file with the test you want to debug. It uses the unmodified wasm output from Clang and could in principle use source maps if I can one day figure out how to do that. It uses `WebAssembly.compileStreaming` instead of the default module from the base64 string, again to make it easier to debug. The unit tests use a `compile` function to compile snapshots, which also has the side effect of outputting the snapshot bytes to `./build/dbg-xxx-bytes.js` so the appropriate snapshot can be pasted into `./tests/debug-test.html`.
 
+Note: [there does exist](https://developer.chrome.com/blog/wasm-debugging-2020/) a way to get C source-level debugging in devtools, but I can't get it working for some reason.
+
 ## Membrane Caching, Handles, and Identity Preservation
 
 The C glue code allocates space for 2048 Microvium handles (about 8 bytes each) that the host can use to hold references to GC-allocated values in the VM. This includes objects and strings, etc.

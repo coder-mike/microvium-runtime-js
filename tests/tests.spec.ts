@@ -344,60 +344,57 @@ test('passing functions', async function () {
   // Passing a host function out of the VM (TC_REF_HOST_FUNC)
 });
 
-suite('objects', () => {
-  test('basic', async function () {
-    const source = `
-      // Note: actually all objects are in RAM at the moment, but this test anticipates a future where some are in ROM.
-      const romObj = { x: 1, y: 2 };
-      let ramObj;
+test('objects-basic', async function () {
+  const source = `
+    // Note: actually all objects are in RAM at the moment, but this test anticipates a future where some are in ROM.
+    const romObj = { x: 1, y: 2 };
+    let ramObj;
 
-      const init = () => ramObj = { x: 3, z: 5 };
-      const getRomObj = () => romObj;
-      const getRamObj = () => ramObj;
-      const getX = obj => obj.x;
-      const getY = obj => obj.y;
-      const getZ = obj => obj.z;
-      const setX = (obj, v) => obj.x = v;
-      const set = (obj, k, v) => obj[k] = v;
-      const get = (obj, k) => obj[k];
+    const init = () => ramObj = { x: 3, z: 5 };
+    const getRomObj = () => romObj;
+    const getRamObj = () => ramObj;
+    const getX = obj => obj.x;
+    const getY = obj => obj.y;
+    const getZ = obj => obj.z;
+    const setX = (obj, v) => obj.x = v;
+    const set = (obj, k, v) => obj[k] = v;
+    const get = (obj, k) => obj[k];
 
-      vmExport(1, init);
-      vmExport(2, getRomObj);
-      vmExport(3, getRamObj);
-      vmExport(4, getX);
-      vmExport(5, getY);
-      vmExport(6, getZ);
-      vmExport(7, setX);
-      vmExport(8, set);
-      vmExport(9, get);
-    `;
+    vmExport(1, init);
+    vmExport(2, getRomObj);
+    vmExport(3, getRamObj);
+    vmExport(4, getX);
+    vmExport(5, getY);
+    vmExport(6, getZ);
+    vmExport(7, setX);
+    vmExport(8, set);
+    vmExport(9, get);
+  `;
 
-    const bar = () => {}
+  const bar = () => {}
 
-    const snapshot = compile(source, this.test!.title!);
-    const vm = await Runtime.restore(snapshot, {
-      [1]: bar
-    });
-    const { [1]: init, [2]: getRomObj, [3]: getRamObj, [4]: getX, [5]: getY, [6]: getZ, [7]: setX, [8]: set, [9]: get } = vm.exports;
-
-    const romObj = getRomObj();
-    assert.equal(typeof romObj, 'object');
-    assert.equal(getX(romObj), 1);
-    assert.equal(getY(romObj), 2);
-    assert.equal(getZ(romObj), undefined);
-    // The difference between `getX(obj)` and `get(obj, 'x')` is that the latter involves marshalling the key across the membrane.
-    assert.equal(get(romObj, 'x'), 1);
-    assert.equal(get(romObj, 'y'), 2);
-    assert.equal(get(romObj, 'z'), undefined);
-    assert.equal(get(romObj, 'a'), undefined); // non-interned string
-    // This accesses the values through the proxy getter
-    assert.equal(romObj.x, 1);
-    assert.equal(romObj.y, 2);
-    assert.equal(romObj.z, undefined);
-    assert.equal(romObj.a, undefined); // non-interned string
+  const snapshot = compile(source, this.test!.title!);
+  const vm = await Runtime.restore(snapshot, {
+    [1]: bar
   });
-})
+  const { [1]: init, [2]: getRomObj, [3]: getRamObj, [4]: getX, [5]: getY, [6]: getZ, [7]: setX, [8]: set, [9]: get } = vm.exports;
 
+  const romObj = getRomObj();
+  assert.equal(typeof romObj, 'object');
+  assert.equal(getX(romObj), 1);
+  assert.equal(getY(romObj), 2);
+  assert.equal(getZ(romObj), undefined);
+  // The difference between `getX(obj)` and `get(obj, 'x')` is that the latter involves marshalling the key across the membrane.
+  assert.equal(get(romObj, 'x'), 1);
+  assert.equal(get(romObj, 'y'), 2);
+  assert.equal(get(romObj, 'z'), undefined);
+  assert.equal(get(romObj, 'a'), undefined); // non-interned string
+  // This accesses the values through the proxy getter
+  assert.equal(romObj.x, 1);
+  assert.equal(romObj.y, 2);
+  assert.equal(romObj.z, undefined);
+  assert.equal(romObj.a, undefined); // non-interned string
+});
 
 
 function loadOnNode(source) {

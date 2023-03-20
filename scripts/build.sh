@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# -g3 \
+# -fdebug-compilation-dir=. \
+
 CC="clang \
 	--target=wasm32 \
 	-nostdlib \
@@ -33,6 +36,9 @@ wasm-ld-15 \
 	build/glue.o \
 	build/microvium.o \
 	build/clib.o
+
+llvm-objdump -h build/microvium1.wasm > build/microvium1.obj-dump
+# llvm-dwarfdump build/microvium1.wasm -o build/microvium1.dwarf
 
 wasm2wat build/microvium1.wasm -o build/microvium1.wat
 
