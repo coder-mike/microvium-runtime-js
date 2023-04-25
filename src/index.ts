@@ -55,6 +55,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
   const readWord = address => mem16[address >>> 1];
   const readByte = address => mem8[address];
   const writeWord = (address, value) => mem16[address >>> 1] = value;
+  const writeByte = (address, value) => mem8[address] = value;
   const tempBuffer = new Uint8Array(8);
   const tempFloat64Buffer = new Float64Array(tempBuffer.buffer);
 
@@ -150,6 +151,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       },
       fmod: (x, y) => x % y,
       pow: (x, y) => x ** y,
+      mvm_snprintf,
       invokeHost,
       importRequired: (id) => {
         if (!(id in imports)) {
@@ -307,6 +309,31 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
 
   function releaseHandle(valueHeld: Handle) {
     valueHeld.release()
+  }
+
+  function mvm_snprintf(bufAddr: number, bufSize: number, formatStringAddr: number, x: number) {
+    const format = readString(formatStringAddr);
+    assert(format === '%d' || format === '%ld' || format === "%.15g");
+    const str = '' + x;
+    const encodedBytes = textEncoder.encode(str);
+    const bytesToWrite = Math.min(encodedBytes.length, bufSize - 1);
+    mem8.set(encodedBytes.subarray(0, bytesToWrite), bufAddr);
+    return encodedBytes.length;
+  }
+
+  function readString(address: number) {
+    let endAddress = address;
+
+    // Find the null-termination (byte value is 0)
+    while (mem8[endAddress] !== 0) {
+      endAddress++;
+    }
+
+    // Create a subarray from the address to the endAddress (excluding the null-terminator)
+    const bytes = mem8.subarray(address, endAddress);
+
+    // Convert the byte array to a UTF-8 string
+    return textDecoder.decode(bytes);
   }
 
   function invokeHost(vm, hostFunctionID, out_vmpResult, vmpArgs, argCount) {

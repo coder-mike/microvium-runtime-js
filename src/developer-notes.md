@@ -60,13 +60,16 @@ So the solution I went with in the end was to implement the few functions and de
     - `memcmp`
     - `strlen`
     - `isdigit`
+    - `isspace`
   - Implemented in JS wrapper code:
     - `fmod` as JS `x % y`
     - `pow` as JS `x ** y`
+    - `snprintf` as JS `'' + x`, since it's only used for numbers
   - Wrappers around WASM builtins:
     - `INFINITY`
     - `isfinite`
     - `isnan`
+    - `isinf`
     - `signbit`
     - `memset`
     - `memcpy`

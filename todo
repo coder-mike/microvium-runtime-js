@@ -1,6 +1,5 @@
 # To Do
 
-- I've introduced a bug into Microvium on the `wasm` branch that needs to be fixed.
 - Support for passing arguments/return values of:
   - Closures (by handle)
   - Objects
@@ -11,6 +10,8 @@
 - mvm_stopAfterNInstructions and mvm_getInstructionCountRemaining
 - Object keys
 - The Microvium library doesn't seem to work with linux for me.
+- Gas counter
+- Debug API. Could include the ability to read/write memory and to dump a representation of the heap, registers, stack.
 - Go over all the remaining TODOs in the code
 - Get rid of the relative import of microvium in tests (before first release)
 - Make sure Terser is still enabled

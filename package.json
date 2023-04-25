@@ -7,7 +7,7 @@
   "scripts": {
     "test": "mocha",
     "build": "./scripts/build.sh",
-    "update-microvium": "./scripts/update-microvium.sh"
+    "update-microvium": "bash scripts/update-microvium.sh"
   },
   "repository": {
     "type": "git",

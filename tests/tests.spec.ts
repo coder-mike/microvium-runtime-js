@@ -295,6 +295,7 @@ test('passing functions', async function () {
   // Passing a host function out of the VM (TC_REF_HOST_FUNC)
 });
 
+// TODO: why do we have two of these?
 test('passing functions', async function () {
   // This tests the passing of function-types between the host and VM
 
@@ -419,6 +420,35 @@ test('objects-basic', async function () {
   assert.equal(ramObj.x, 20);
   ramObj.x = 30;
   assert.equal(ramObj.x, 30);
+});
+
+test('snprintf', async function () {
+  // The implementation of string coercion of numbers in Microvium is based on
+  // snprintf. This just tests that that's working .
+  const source = `
+    vmExport(1, x => '' + x);
+  `;
+
+  const snapshot = compile(source, this.test!.title!);
+  const vm = await Runtime.restore(snapshot, {  });
+  const { [1]: toStr } = vm.exports;
+
+  assert.equal(toStr(0), '0');
+  assert.equal(toStr(1), '1');
+  assert.equal(toStr(-1), '-1');
+  assert.equal(toStr((0x7FFFFFFF)), '2147483647');
+  assert.equal(toStr((-0x80000000)), '-2147483648');
+
+  assert.equal(toStr(NaN), 'NaN');
+  assert.equal(toStr(Infinity), 'Infinity');
+  assert.equal(toStr((-Infinity)), '-Infinity');
+  assert.equal(toStr((-0.0)), '0');
+  assert.equal(toStr(0.1), '0.1');
+  assert.equal(toStr((-0.1)), '-0.1');
+  assert.equal(toStr(1e30), '1e+30');
+  assert.equal(toStr((-1e30)), '-1e+30');
+  assert.equal(toStr(1e-30), '1e-30');
+  assert.equal(toStr((-1e-30)), '-1e-30');
 });
 
 
