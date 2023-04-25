@@ -60,24 +60,24 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
 
   class Handle {
     refCount = 1;
-    handle: number;
+    address: number;
     constructor(vmValue: number) {
-      this.handle = newHandle(vm, vmValue);
-      if (!this.handle) {
+      this.address = newHandle(vm, vmValue);
+      if (!this.address) {
         throw new Error('Microvium: runtime has run out of handles. This could happen if there are too many objects in the VM that are being referenced by live references in the host')
       }
       assert(this.value === vmValue);
     }
     addRef() { this.refCount++; }
     release() {
-      assert(this.handle);
+      assert(this.address);
       if (--this.refCount === 0) {
-        vmReleaseHandle(vm, this.handle);
-        this.handle = 0;
+        vmReleaseHandle(vm, this.address);
+        this.address = 0;
       }
     }
-    get value() { return readWord(this.handle); } // the first field inside the handle is the value it refers to
-    set value(value: number) { writeWord(this.handle, value); }
+    get value() { return readWord(this.address); } // the first field inside the handle is the value it refers to
+    set value(value: number) { writeWord(this.address, value); }
     get _dbgValue() { return valueToHost(this.value); }
   }
 
@@ -90,67 +90,48 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       // The property name may need to be copied into the VM, but it might also
       // be resolved to one of the strings in ROM. The interned strings in the
       // snapshot are added to the cachedValueToVm at startup.
-      // TODO: Test both cases
-      const vmPropName = valueToVM(p);
+      // Note: valueToHandle is used for the convenience being able to get a
+      // pointer to the value.
+      const vmPropName = valueToHandle(valueToVM(p));
 
-      // The getProperty function requires a live pointer to the string value,
-      // which stays updated over a GC cycle. If we're referencing a handle
-      let pPropertyName: number;
-      if (vmPropName instanceof Handle) {
-        // TODO: test this path
+      // Note: `getProperty` trashes the object argument, so we can't pass our
+      // owned handle directly, but we can use this temporary handle.
+      const vmObject = new Handle(this.handle.value);
 
-        // If it's a handle, then the handle pointer is also a pointer to the property name
-        pPropertyName = vmPropName.handle;
-      } else {
-        // Otherwise, the property must be in ROM and so it will be stable
-        // across GC collections already. So we copy it into gp2 so we can get a
-        // pointer to it.
-        writeWord(gp2, vmPropName);
-        pPropertyName = gp2;
-      }
-
-      // Note: `getProperty` trashes `generalPurposeHandle1.handle`, so we can't
-      // pass our owned handle directly, but we can use this temporary handle.
-      generalPurposeHandle1.value = this.handle.value;
-
-      const err = getProperty(vm, generalPurposeHandle1.handle, pPropertyName, generalPurposeHandle1.handle);
+      const err = getProperty(vm, vmObject.address, vmPropName.address, gp2);
       check(err);
-      const vmPropValue = generalPurposeHandle1.value;
-      generalPurposeHandle1.value = VM_VALUE_UNDEFINED;
+      const vmPropValue = readWord(gp2);
       const hostPropValue = valueToHost(vmPropValue);
 
-      if (vmPropName instanceof Handle) vmPropName.release();
+      vmPropName.release();
+      vmObject.release();
 
       return hostPropValue;
     }
 
-    set(target: any, p: string | symbol, value: any, receiver: any): boolean {
+    set(target: any, p: string | symbol, hostValue: any, receiver: any): boolean {
       if (typeof p !== 'string') return false;
 
       // The property name may need to be copied into the VM, but it might also
       // be resolved to one of the strings in ROM. The interned strings in the
       // snapshot are added to the cachedValueToVm at startup.
-      const vmPropName = valueToVM(p);
+      // Note: valueToHandle is used for the convenience being able to get a
+      // pointer to the value.
+      const vmPropName = valueToHandle(valueToVM(p));
+      const vmValue = valueToHandle(valueToVM(hostValue));
 
-      let pPropertyName: number;
-      if (vmPropName instanceof Handle) {
-        // TODO: test this path
+      // Note: `setProperty` trashes the object argument, so we can't pass our
+      // owned handle directly, but we can use this temporary handle.
+      const vmObject = new Handle(this.handle.value);
 
-        // If it's a handle, then the handle pointer is also a pointer to the property name
-        pPropertyName = vmPropName.handle;
-      } else {
-        // Otherwise, the property must be in ROM and so it will be stable
-        // across GC collections already. So we copy it into gp2 so we can get a
-        // pointer to it.
-        writeWord(gp2, vmPropName);
-        pPropertyName = gp2;
-      }
-
-      const err = setProperty(vm, generalPurposeHandle1.handle, pPropertyName, generalPurposeHandle1.handle);
+      const err = setProperty(vm, vmObject.address, vmPropName.address, vmValue.address);
       check(err);
 
-      if (vmPropName instanceof Handle) vmPropName.release();
+      vmPropName.release();
+      vmValue.release();
+      vmObject.release();
 
+      return true;
     }
 
   }
@@ -203,6 +184,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     engineMajorVersion,
     newHandle,
     getProperty,
+    setProperty,
   } = exports;
   const engineVersion = `${readByte(engineMajorVersion.value)}.${readByte(engineMinorVersion.value)}.0`;
 
@@ -250,16 +232,12 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
   // primitives.
   const cachedValueToVm1 = new WeakMap<Object, Handle>();
   const cachedValueToVm2 = new Map<any, number>();
-
   const cachedValueToHost = new Map<number, any>();
-
   const handleFinalizationRegistry = new FinalizationRegistry<Handle>(releaseHandle);
 
   cacheInternedStrings();
   cacheWellKnownValues();
   // cacheImports(); // TODO ? maybe. Or cached on-demand
-
-  const generalPurposeHandle1 = new Handle(VM_VALUE_UNDEFINED);
 
   return {
     engineVersion,
@@ -317,6 +295,14 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     removeBreakpoint(bytecodeAddress: number) {
       exports.mvm_dbg_removeBreakpoint(vm, bytecodeAddress)
     },
+  }
+
+  // Sometimes we need to pass a pointer to a value to the Microvium API.
+  // Handles are useful in this respect as their slot is addressable, and
+  // because there's already a mechanism for dynamically allocating them.
+  function valueToHandle(value: number | Handle): Handle {
+    if (value instanceof Handle) return value;
+    return new Handle(value);
   }
 
   function releaseHandle(valueHeld: Handle) {

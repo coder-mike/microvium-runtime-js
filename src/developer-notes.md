@@ -1,6 +1,6 @@
 # Microvium Runtime - Developer Notes
 
-Note: although I'm on Windows, I'm using WSL (Ubuntu) to build because the installation instructions for Clang seems simpler on Ubuntu, and for the life of me I can't figure out how to install `wasm-ld` on Windows, when on linux it seems to come with LLVM by default.
+Note: although I'm on Windows, I'm using WSL (Ubuntu) to build because the installation instructions for Clang seems simpler on Ubuntu, and for the life of me I can't figure out how to install `wasm-ld` on Windows, when on linux it seems to come with LLVM by default. But I'm still using Windows to test because the tests import `../microvium` to compile JS to bytecode.
 
 The WASM build of Microvium uses **Clang** directly, not Emscripten, since Emscripten apparently adds a bunch of extra stuff, and I wanted to keep the build output small (that's what Microvium's all about!). But also, Microvium is much more efficient if it can be compiled to execute in a single, pre-defined page of RAM, and I felt that this would be easier to control with Clang than with Emscripten. It was still more difficult than I thought - [see below](#notes-about-memory-layout).
 

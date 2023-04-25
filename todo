@@ -7,6 +7,8 @@
   - Arrays
   - Uint8Array
   - Host functions
+- Exceptions and error codes, including with reentrancy
+- mvm_stopAfterNInstructions and mvm_getInstructionCountRemaining
 - Object keys
 - The Microvium library doesn't seem to work with linux for me.
 - Go over all the remaining TODOs in the code
