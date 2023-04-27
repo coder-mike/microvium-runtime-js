@@ -285,9 +285,10 @@ test('passing functions', async function () {
   assert.equal(typeof add, 'function');
   assert.equal(add(2), 3);
 
-  // TODO: finish off these tests
+  // Passing a VM closure into the VM (TC_REF_CLOSURE)
+  assert.equal(call(add, 5), 6);
 
-  // Passing a closure into the VM (TC_REF_CLOSURE)
+  // TODO: finish off these tests
 
   // Passing a host function into the VM (TC_REF_HOST_FUNC)
 
