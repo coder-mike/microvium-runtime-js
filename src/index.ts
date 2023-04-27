@@ -12,6 +12,8 @@ export type AnyFunction = (...args: any[]) => any;
 export type Exports = Record<number, AnyFunction>;
 export type Imports = Record<number, AnyFunction>;
 
+type mvm_Value = number;
+
 export default {
   restore
 }
@@ -80,6 +82,59 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     get value() { return readWord(this.address); } // the first field inside the handle is the value it refers to
     set value(value: number) { writeWord(this.address, value); }
     get _dbgValue() { return valueToHost(this.value); }
+  }
+
+  function makeProxy(vmValue: mvm_Value, kind: 'object' | 'function', valueIsConst: boolean) {
+    const handle = new Handle(vmValue);
+    const wrappedValue = kind === 'object' ? {} : () => {};
+    const HandlerConstructor = kind === 'object' ? ObjectProxyHandler : FunctionProxyHandler;
+
+    const hostValue = new Proxy(wrappedValue, new HandlerConstructor(handle));
+    // When the proxy is freed, the handle should also be released.
+    handleFinalizationRegistry.register(hostValue, handle);
+
+    // If the host passes this object back to the VM, it will be passed
+    // by-reference. Since the object can move, we need to cache it by the
+    // handle. We don't need to `addRef` on the handle here because its
+    // lifetime is already locked to the hostValue which is the cache key.
+    cachedValueToVm1.set(hostValue, handle);
+
+    if (valueIsConst) {
+      cachedValueToVm2.set(hostValue, vmValue);
+    }
+
+    return hostValue;
+  }
+
+  class FunctionProxyHandler implements ProxyHandler<() => {}> {
+    constructor (private handle: Handle) {}
+
+    apply(target: any, thisArg: any, hostArgs: any[]): any {
+      // We only have space for 64 arguments in argsTemp
+      const maxArgs = 64;
+      if (hostArgs.length > maxArgs) {
+        throw new Error(`Too many arguments (Microvium WASM runtime library only supports ${maxArgs} arguments)`)
+      }
+      // Note: we need to convert all the arguments before copying the first
+      // value into VM memory, because it's possible for the conversion of
+      // any arg to trigger a GC collection that invalidates the value of an
+      // earlier arg.
+      const converted = hostArgs.map(valueToVM);
+
+      for (let i = 0; i < converted.length; i++) {
+        let vmArg = converted[i];
+        if (vmArg instanceof Handle) vmArg = vmArg.value;
+        writeWord(pArgsTemp + i * 2, vmArg);
+      }
+
+      check(mvm_call(vm, this.handle.value, gp2, pArgsTemp, hostArgs.length));
+      const vmResult = readWord(gp2);
+      for (const arg of converted) {
+        if (arg instanceof Handle) arg.release();
+      }
+      const hostResult = valueToHost(vmResult);
+      return hostResult;
+    }
   }
 
   class ObjectProxyHandler implements ProxyHandler<{}> {
@@ -394,7 +449,6 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       return cachedValueToVm2.get(hostValue)!;
     }
 
-
     switch (typeof hostValue) {
       case 'undefined': return 0x01;
       case 'boolean': return hostValue ? 0x09 : 0x0D;
@@ -484,6 +538,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     const headerWord = readWord(address - 2);
     const typeCode = headerWord >>> 12;
     const size = headerWord & 0xFFF;
+    const valueIsConst = address >= romStart;
     switch (typeCode) {
       // Int32
       case 0x1:
@@ -503,45 +558,13 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
         const temp = new Uint8Array(memory.buffer, address, size - 1);
         return textDecoder.decode(temp);
       }
-      // TC_REF_FUNCTION
-      case 0x5: {
-        // TODO: Maybe this should technically be a proxy not just a wrapper
-        // function. Firstly, it will look better in the debugger. Secondly, we
-        // can throw errors when a user tries to set properties on it etc. TODO:
-        // this logic can be factored out to work for closures as well.
-        const f = (...hostArgs: any[]) => {
-          // We only have space for 64 arguments in argsTemp
-          const maxArgs = 64;
-          if (hostArgs.length > maxArgs) {
-            throw new Error(`Too many arguments (Microvium WASM runtime library only supports ${maxArgs} arguments)`)
-          }
-          // Note: we need to convert all the arguments before copying the first
-          // value into VM memory, because it's possible for the conversion of
-          // any arg to trigger a GC collection that invalidates the value of an
-          // earlier arg.
-          const converted = hostArgs.map(valueToVM);
 
-          for (let i = 0; i < converted.length; i++) {
-            let vmArg = converted[i];
-            if (vmArg instanceof Handle) vmArg = vmArg.value;
-            writeWord(pArgsTemp + i * 2, vmArg);
-          }
-          assert(address >= romStart); // Functions are stored in ROM so we don't need a handle
-          check(mvm_call(vm, vmValue, gp2, pArgsTemp, hostArgs.length));
-          const vmResult = readWord(gp2);
-          for (const arg of converted) {
-            if (arg instanceof Handle) arg.release();
-          }
-          const hostResult = valueToHost(vmResult);
-          return hostResult;
-        }
-
-        // These functions are in ROM, so the value can't shift during GC, so we
-        // can cache the value directly rather than through a handle.
-        cachedValueToVm2.set(f, vmValue);
-
-        return f;
+      case 0x5: // TC_REF_FUNCTION
+      case 0xF: // TC_REF_CLOSURE
+      {
+        return makeProxy(vmValue, 'function', valueIsConst);
       }
+
       // Host function
       case 0x6: {
         const indexInImportTable = readWord(address);
@@ -563,20 +586,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
 
       // Object
       case 0xC: {
-        const handle = new Handle(vmValue);
-        const hostValue = new Proxy({}, new ObjectProxyHandler(handle));
-        // When the proxy is freed, the handle should also be released.
-        handleFinalizationRegistry.register(hostValue, handle);
-        // If the host passes this object back to the VM, it will be passed
-        // by-reference. Since the object can move, we need to cache it by the
-        // handle. We don't need to `addRef` on the handle here because its
-        // lifetime is already locked to the hostValue which is the cache key.
-        cachedValueToVm1.set(hostValue, handle);
-
-        // Note: we can't add it to cachedValueToHost because we have nothing
-        // stable to cache it on (the vmValue changes over GC cycles).
-
-        return hostValue;
+        return makeProxy(vmValue, 'object', valueIsConst);
       }
 
       default: return notImplemented();

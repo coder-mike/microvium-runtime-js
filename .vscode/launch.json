@@ -15,8 +15,8 @@
           "--timeout",
           "999999",
           "--colors",
-          "--grep=\"objects\"",
-          "${workspaceFolder}/test"
+          "--grep=\"functions\"",
+          "${workspaceFolder}/tests"
       ],
       // "runtimeArgs": ["--trace-warnings"],
       "console": "internalConsole",

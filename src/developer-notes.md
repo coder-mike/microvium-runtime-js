@@ -97,7 +97,9 @@ The linker is what controls the memory layout, and the WASM linker for Clang is 
 
 ## Debugging
 
-Mostly I haven't found a good way to do debugging. The tests can only really run on node.js because they leverage the Microvium compiler to compile the snapshot. But WASM debugging in node.js is non-existent at the moment.
+You can debug the mocha tests using the `Mocha` launch profile in VS Code.
+
+Mostly I haven't found a good way to do debugging of the WASM itself. The tests can only really run on node.js because they leverage the Microvium compiler to compile the snapshot. But WASM debugging in node.js is non-existent at the moment.
 
 The best I've come up with is `./tests/debug-test.html`. Edit that file with the test you want to debug. It uses the unmodified wasm output from Clang and could in principle use source maps if I can one day figure out how to do that. It uses `WebAssembly.compileStreaming` instead of the default module from the base64 string, again to make it easier to debug. The unit tests use a `compile` function to compile snapshots, which also has the side effect of outputting the snapshot bytes to `./build/dbg-xxx-bytes.js` so the appropriate snapshot can be pasted into `./tests/debug-test.html`.
 
