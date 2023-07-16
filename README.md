@@ -4,9 +4,16 @@
 
 ************ UNDER DEVELOPMENT. NOT READY FOR USE. **********
 
-This is a JavaScript library for executing [Microvium](https://github.com/coder-mike/microvium) snapshots. It does not include the Microvium compiler to produce those snapshots (see [Microvium](https://github.com/coder-mike/microvium)).
+JavaScript library for executing [Microvium](https://github.com/coder-mike/microvium) snapshots. It does not include the Microvium compiler to produce those snapshots (see [Microvium](https://github.com/coder-mike/microvium)).
 
-This is implemented as a lightweight JavaScript wrapper around a WebAssembly build of `microvium.c`. It runs in the browser or in Node.js.
+Implemented as a lightweight JavaScript wrapper around a WebAssembly build of `microvium.c`, to run in the browser or in Node.js.
+
+
+## Limitations
+
+- As on a microcontroller, scripts running in Microvium can only use up to 64kB of RAM.
+- The WebAssembly memory is pre-allocated as 256 kB (see [memory usage](#memory-usage) below), no matter how small the actual script is.
+- Objects and functions passed from the VM to the host are not identity-preserving, meaning that if you pass the same object multiple times, you may get a different proxy in the host each time.
 
 
 ## Install
@@ -14,7 +21,6 @@ This is implemented as a lightweight JavaScript wrapper around a WebAssembly bui
 ```sh
 npm install @microvium/runtime
 ```
-
 
 ## Usage
 
@@ -41,6 +47,7 @@ const sayHello = vm.exports[1234];
 sayHello('Hello');
 ```
 
+
 ## Passing values to and from the VM
 
 Values can be passed to and from the Microvium VM as function arguments and return values. The library wrapper code does its best to convert Microvium JavaScript types to host JavaScript types and vice versa.
@@ -51,9 +58,9 @@ Everything passed **into** Microvium is passed **by copy**, since a Microvium VM
 
 Plain objects and arrays are passed **out** of Microvium **by reference** -- the wrapper library maintains a `Proxy` of the Microvium object, so that the host may mutate the Microvium object by interacting with the proxy.
 
-`Uint8Array` is passed out of Microvium not as a host `Uint8Array` but as a `MicroviumUint8Array` which has methods `slice` and `set` to read and write from it respectively.
+`Uint8Array` is passed out of Microvium not as a host `Uint8Array` but as a `MicroviumUint8Array` which has methods `slice` and `set` to read and write to it respectively.
 
-Functions and closures are be passed **out** of Microvium **by reference** and cannot be passed into Microvium at all. The VM may only access host functions that were acquired by `vmImport` prior to building the snapshot.
+Functions and closures are be passed **out** of Microvium **by reference**. Host functions cannot be passed into Microvium at all at runtime, but can be imported from the host at build-time using `vmImport` and then satisfied by the `importMap`.
 
 
 ## Memory usage
@@ -68,6 +75,7 @@ Each Microvium instance is a fixed size and takes 4 pages of memory (a total of 
   - Page 3: Reserved for future use
 
 Page 0 is used for the Microvium heap because Microvium pointer values are internally 16-bit integers and this this allows them to map directly to WASM memory offsets without any translation, making it very efficient.
+
 
 ## Contributing
 

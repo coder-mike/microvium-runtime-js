@@ -1,8 +1,8 @@
 # Microvium Runtime - Developer Notes
 
-Note: although I'm on Windows, I'm using WSL (Ubuntu) to build because the installation instructions for Clang seems simpler on Ubuntu, and for the life of me I can't figure out how to install `wasm-ld` on Windows, when on linux it seems to come with LLVM by default. But I'm still using Windows to test because the tests import `../microvium` to compile JS to bytecode.
+Note: although I'm on Windows, I'm using WSL (Ubuntu) to build because the installation instructions for Clang seems simpler on Ubuntu, and for the life of me I can't figure out how to install `wasm-ld` on Windows, when on linux it seems to come with LLVM by default. But I'm still using Windows (git-bash) to test because the tests import `../microvium` to compile JS to bytecode.
 
-The WASM build of Microvium uses **Clang** directly, not Emscripten, since Emscripten apparently adds a bunch of extra stuff, and I wanted to keep the build output small (that's what Microvium's all about!). But also, Microvium is much more efficient if it can be compiled to execute in a single, pre-defined page of RAM, and I felt that this would be easier to control with Clang than with Emscripten. It was still more difficult than I thought - [see below](#notes-about-memory-layout).
+The WASM build of Microvium uses **Clang** directly, not Emscripten, since Emscripten apparently adds a bunch of extra stuff, and I wanted to keep the build output small (that's what Microvium's all about!). But also, Microvium is much more efficient if it can be compiled to execute in a single, pre-defined page of RAM, and I felt that this would be easier to control with Clang than with Emscripten. It was still more difficult than I thought - [see below](#memory-layout).
 
 
 ## Environment Setup
@@ -35,12 +35,14 @@ fi
 ```
 
 
-
 ## Building
+
+I run the following from WSL:
 
 ```sh
 ./scripts/build.sh
 ```
+
 
 ## C Standard library
 
@@ -99,11 +101,20 @@ The linker is what controls the memory layout, and the WASM linker for Clang is 
 
 You can debug the mocha tests using the `Mocha` launch profile in VS Code.
 
-Mostly I haven't found a good way to do debugging of the WASM itself. The tests can only really run on node.js because they leverage the Microvium compiler to compile the snapshot. But WASM debugging in node.js is non-existent at the moment.
+WASM debugging seems to have recently taken a leap forward in Chrome devtools 114 (May 2023), thank goodness.
 
-The best I've come up with is `./tests/debug-test.html`. Edit that file with the test you want to debug. It uses the unmodified wasm output from Clang and could in principle use source maps if I can one day figure out how to do that. It uses `WebAssembly.compileStreaming` instead of the default module from the base64 string, again to make it easier to debug. The unit tests use a `compile` function to compile snapshots, which also has the side effect of outputting the snapshot bytes to `./build/dbg-xxx-bytes.js` so the appropriate snapshot can be pasted into `./tests/debug-test.html`.
+- In `scripts/build.sh`, comment out the "Release mode" mode build command and uncomment the "Debug mode" build command. This adds relevant symbols and turns off optimization.
+- `npm run build` (in WSL) -- builds both the WASM and the wrapper library
+  - Or if only the TypeScript is changing, `ctrl+shift+B` runs the default build task which is a rollup watch run.
+- Modify [tests/debug-test.html](../tests/debug-test.html)
+  - Each unit test has corresponding debug bytes in `./build/dbg-xxx-bytes.js` which is output as the test runs. Copy these into the html file script section.
+- `npx serve .` (in project root)
+- Open `http://localhost:3000/tests/debug-test.html`
 
-Note: [there does exist](https://developer.chrome.com/blog/wasm-debugging-2020/) a way to get C source-level debugging in devtools, but I can't get it working for some reason.
+This gives you C source level debugging. `debug-test.html` uses the unmodified WASM output from Clang which includes source maps. It uses `WebAssembly.compileStreaming` which references the actual WASM file instead of the base64 string, which I think helps devtools to find the corresponding C source files.
+
+The unit tests use a `compile` function to compile snapshots, which also has the intended effect of outputting the snapshot bytes to `./build/dbg-xxx-bytes.js` so the appropriate snapshot can be pasted into `./tests/debug-test.html`.
+
 
 ## Membrane Caching, Handles, and Identity Preservation
 
@@ -117,24 +128,25 @@ When the VM calls the host, the return value may similarly need to be allocated 
 
 When an object is passed from the VM to the host, a proxy is created in the host. The proxy owns a handle to the corresponding object in the VM. When the host proxy is garbage collected, the handle must be freed as well, to allow the VM to free the corresponding object. This is done using a finalization registry.
 
-If the host passes the same proxy back into the VM, the membrane must recognize that it's a VM object and so translate it to the corresponding handle. This is done using a `WeakMap` table called `cachedValueToVm1`, mapping proxies to their corresponding handle. The handles in this table are only accessible so long as the key is live, which guarantees that the handle is not garbage collected.
+If the host passes the same proxy back into the VM, the membrane must recognize that it's a VM object and so translate it to the corresponding handle. This is done using a `WeakMap` table called `cachedValueToVm1`, mapping proxies to their corresponding handle. The handles in this table are only accessible so long as the key is live.
 
 As mentioned earlier, the handle should only be resolved at the very last moment since the conversion of other arguments may trigger a GC cycle which moves things around. During the call, the handle is owned by both the proxy and the call machinery, so handles are reference counted.
 
 Unfortunately, if the same VM object is passed to the host multiple times, it will get a new proxy every time. This is because Microvium doesn't have a data structure like a `WeakMap` that can be used to cache the conversion information. We could maintain the identity by searching all the open handles, but this would be an expensive linear search, so instead I'm settling for the fact that translations from Microvium to the host are not necessarily identity-preserving.
 
-Functions are more complicated. Closure functions behave like objects: they are GC-allocated and stateful. They follow the same rules as objects - the are marshalled to the host by-reference with a wrapper proxy which owns a handle. They appear in the `cachedValueToVm1` table so that if/when they're transferred back to the VM, the original VM value is restored via the handle.
+Functions are more complicated. Closure functions behave like objects: they are GC-allocated and stateful. They follow the same rules as objects - they are marshalled to the host by-reference with a wrapper proxy which owns a handle. They appear in the `cachedValueToVm1` table so that if/when they're transferred back to the VM, the original VM value is restored via the handle.
 
-VM functions (in the bytecode) are non-moving so they aren't associated with a handle. The are cached in `cachedValueToVm2` which is a `Map` rather than a `WeakMap`, primarily so that it can also map strings and other ROM allocations.
+VM functions (in the bytecode) are non-moving but they're still associated with a handle because it's convenient to use the same machinery for closures and non-moving functions. They are cached in `cachedValueToVm2` which is a `Map` rather than a `WeakMap`, primarily so that it can also map strings and other ROM allocations, and because the function is in ROM so it exists permanently, so it's ok for the proxy to be allocated permanently.
 
-On the topic of strings, strings in the ROM internal table are also cached in `cachedValueToVm2` at startup so that translation of host strings to VM strings can be efficient when the string is a property key or other well-known string (e.g. strings used as enum values etc).
+On the topic of strings, strings in the ROM internal table are also cached in `cachedValueToVm2` at startup so that translation of host strings to VM strings can be efficient when the string is a property key or other well-known string (e.g. strings used as enum values etc). See `cacheInternedStrings`.
 
-Host function references in the VM (`TC_REF_HOST_FUNC`) must refer to a function in the host which is in the import table. When passed to the host, these are unwrapped to their original host function value and added to the `cachedValueToVm1` table with an allocated handle (TODO). The reason to use a handle is that `TC_REF_HOST_FUNC` is a heap-allocated type, so the target can move.
+Host function references in the VM (`TC_REF_HOST_FUNC`) must refer to a function in the host which is in the import table. When passed to the host, these are unwrapped to their original host function value and added to the `cachedValueToVm1` table with an allocated handle. The reason to use a handle is that `TC_REF_HOST_FUNC` is a heap-allocated type, so the target can move.
 
 Going the other direction, if a function is passed from the host to the VM, it will:
 
   1. First check `cachedValueToVm1` which will find any pre-existing `TC_REF_HOST_FUNC` functions previously passed out of the VM.
   2. Then check `cachedValueToVm2` which will find any VM bytecode functions that have been passed out of the VM.
-  3. The it will check the import table (TODO). If the function is an import but was not found by (1), then we can allocate a new `TC_REF_HOST_FUNC` and add it to `cachedValueToVm1` for future.
+  3. Then it will check the import table. If the function is an import but was not found by (1), then we can allocate a new `TC_REF_HOST_FUNC` and add it to `cachedValueToVm1` for future.
   4. Otherwise, it will throw. Arbitrary host functions can't be passed to the VM at the moment because there is currently no way of referencing them from the VM runtime. In future, it could probably be done using `TC_REF_VIRTUAL`, but this isn't implemented yet.
 
+Note: a `TC_REF_HOST_FUNC` record contains the *index* of the host function in the import table, not the ID. To get the index, the library reads the index table at startup and builds a map from the provided host function to the corresponding index in the index table.

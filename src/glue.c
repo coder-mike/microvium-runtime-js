@@ -24,6 +24,7 @@ uint8_t engineMajorVersion = MVM_ENGINE_MAJOR_VERSION;
 extern mvm_TeError invokeHost(mvm_VM* vm, mvm_HostFunctionID hostFunctionID, mvm_Value* result, mvm_Value* args, uint8_t argCount);
 extern void importRequired(mvm_HostFunctionID hostFunctionID);
 extern void breakpointHit(mvm_VM* vm, uint16_t bytecodeAddress);
+extern void debugPrint(mvm_VM* vm, const char* message);
 
 // Implemented in Microvium
 void* mvm_gc_allocateWithHeader(mvm_VM* vm, uint16_t sizeBytes, uint8_t typeCode);

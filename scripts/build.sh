@@ -1,22 +1,39 @@
 #!/bin/bash
 set -e
 
-# -g3 \
-# -fdebug-compilation-dir=. \
-
+# Debug mode
 CC="clang \
 	--target=wasm32 \
 	-nostdlib \
-	-O3 \
+	-O0 \
 	-I ./src \
 	-I ./src/microvium \
 	-I ./src/clib \
+	-g3 \
+	-fdebug-compilation-dir=. \
 	-Werror \
 	-nostdlib \
 	-mbulk-memory"
 
+# Release mode
+# CC="clang \
+# 	--target=wasm32 \
+# 	-nostdlib \
+# 	-O3 \
+# 	-I ./src \
+# 	-I ./src/microvium \
+# 	-I ./src/clib \
+# 	-Werror \
+# 	-nostdlib \
+# 	-mbulk-memory"
+
 mkdir -p build
 mkdir -p dist
+
+# It looks like chrome devtools debugger is looking for the C source files here
+mkdir -p build/src
+cp -r src/microvium build/src/microvium
+cp src/*.{c,h} build/src
 
 $CC -o build/microvium.o -c src/microvium/microvium.c
 $CC -o build/allocator.o -c src/allocator.c
@@ -38,7 +55,7 @@ wasm-ld-15 \
 	build/clib.o
 
 llvm-objdump -h build/microvium1.wasm > build/microvium1.obj-dump
-# llvm-dwarfdump build/microvium1.wasm -o build/microvium1.dwarf
+llvm-dwarfdump build/microvium1.wasm -o build/microvium1.dwarf
 
 wasm2wat build/microvium1.wasm -o build/microvium1.wat
 

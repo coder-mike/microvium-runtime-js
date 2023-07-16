@@ -8,6 +8,8 @@ import { MemoryStats, memoryStatsFields } from './memory-stats-fields';
 import { microviumWasmBase64 } from './microvium-wasm-base64';
 import { mvm_TeError } from './microvium/runtime-types'
 
+console.log('Version 1'); // TODO: remove this
+
 export type AnyFunction = (...args: any[]) => any;
 export type Exports = Record<number, AnyFunction>;
 export type Imports = Record<number, AnyFunction>;
@@ -51,6 +53,9 @@ export function useWasmModule(module: PromiseLike<WebAssembly.Module>) {
 }
 
 export async function restore(snapshot: ArrayLike<number>, imports: Imports, opts?: RestoreOptions) {
+  // Note: I have no idea why the WASM module compiles to need "4" pages, when
+  // it only seems to make use of 3. I'm ignoring this for the moment because
+  // the extra page doesn't really hurt on a desktop-class machine.
 	const memory = new WebAssembly.Memory({ initial: 4, maximum: 4 });
 	const mem8 = new Uint8Array(memory.buffer);
 	const mem16 = new Uint16Array(memory.buffer);
@@ -189,19 +194,18 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
 
       return true;
     }
-
   }
 
   // This implementation assumes that the imports don't change over time.
   imports = { ...imports };
-  const idByImport = new Map([...Object.entries(imports)].map(([id, f]) => [f, id]));
 
 	const wasmImports = {
 		env: {
 			memory: memory,
 			mvm_fatalError: (code) => {
         check(code);
-        // Check should throw because the code MVM_SUCCESS should not be used for fatal errors
+        // Shouldn't get here because the above check should already throw
+        // because the code MVM_SUCCESS should not be used for fatal errors
         throw new Error('unexpected');
       },
       fmod: (x, y) => x % y,
@@ -292,6 +296,9 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
   const cachedValueToHost = new Map<number, any>();
   const handleFinalizationRegistry = new FinalizationRegistry<Handle>(releaseHandle);
 
+  // Table of function indexes imported by the VM
+  const indexByImport: Map<AnyFunction, number> = indexImports();
+
   cacheInternedStrings();
   cacheWellKnownValues();
   // cacheImports(); // TODO ? maybe. Or cached on-demand
@@ -376,6 +383,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     return encodedBytes.length;
   }
 
+  // Read a null-terminated string from the given memory address
   function readString(address: number) {
     let endAddress = address;
 
@@ -479,15 +487,16 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
         break;
       }
       case 'function': {
-        const importId = idByImport.get(hostValue);
-        if (importId !== undefined) {
+        const importIndex = indexByImport.get(hostValue);
+        if (importIndex !== undefined) {
           const hostFunc = gcAllocate(2, 0x6 /* TC_REF_HOST_FUNC */);
-          writeWord(hostFunc.value, importId);
+          writeWord(hostFunc.value, importIndex);
           return hostFunc;
         }
-        return notImplemented();
-      }
 
+        // Microvium doesn't have a way to represent a general host function
+        throw new Error('Host functions cannot be passed to the VM');
+      }
     }
     // TODO
     return notImplemented();
@@ -517,7 +526,9 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       // not get to this point in the code
       assert(vmValue > 0x25);
 
-      // TODO Indirection through handles
+      // TODO Indirection through handles (maybe not required right now because
+      // the Microvium compiler doesn't do the static analysis to determine that
+      // a value is a constant, I think handles will not be used).
 
       // Plain bytecode pointer
       address = romStart + (vmValue & 0xFFFC);
@@ -527,7 +538,10 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
 
     // Cache ROM values
     if (address >= romStart) {
+      // If we pass the same ROM value back to the VM, we want to map it to the
+      // same host value.
       cachedValueToHost.set(vmValue, result);
+      // If the host passes the value back.
       cachedValueToVm2.set(result, vmValue);
     }
 
@@ -630,6 +644,38 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       assert(cachedValueToHost.has(vmValue));
       cursor += 2;
     }
+  }
+
+  function indexImports() {
+    // This function builds a map of host exports by their index in the import
+    // table. The index is what is referenced by the TC_REF_HOST_FUNCTION type,
+    // which we construct dynamically in valueToVM.
+
+    const importById = new Map([...Object.entries(imports)].map(([id, f]) => [parseInt(id), f]));
+    const indexByImport = new Map<AnyFunction, number>();
+
+    const assumedVersion = '7.7.0';
+    if (engineVersion !== assumedVersion) {
+      throw new Error(`The following code was written against engine version ${assumedVersion}. If this has changed, please check the logic still applies and then update the \`assumedVersion\` variable above.`);
+    }
+    // This is horribly hacky but should be pretty efficient
+    const importTableStart = romStart + readWord(romStart + 12);
+    const importTableEnd = romStart + readWord(romStart + 14);
+
+    let cursor = importTableStart;
+    let index = 0;
+    while (cursor < importTableEnd) {
+      const importId = readWord(cursor);
+      const importValue = importById.get(importId);
+      if (!importValue) {
+        throw new Error(`Import ${importId} is required by the VM but not provided by the host`);
+      }
+      indexByImport.set(importValue, index);
+      cursor += 2;
+      index++;
+    }
+
+    return indexByImport;
   }
 
   function cacheWellKnownValues() {

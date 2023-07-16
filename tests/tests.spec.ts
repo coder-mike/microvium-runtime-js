@@ -264,7 +264,7 @@ test('passing functions', async function () {
     vmExport(4, getBar);
   `;
 
-  const bar = () => {}
+  const bar = (a, b) => a + b + 5;
 
   const snapshot = compile(source, this.test!.title!);
   const vm = await Runtime.restore(snapshot, {
@@ -288,11 +288,16 @@ test('passing functions', async function () {
   // Passing a VM closure into the VM (TC_REF_CLOSURE)
   assert.equal(call(add, 5), 6);
 
-  // TODO: finish off these tests
+  // Passing a new host function to the VM
+  let err;
+  try { call(() => {}); } catch (e) { err = e; }
+  assert.equal(err.toString(), 'Error: Host functions cannot be passed to the VM')
 
-  // Passing a host function into the VM (TC_REF_HOST_FUNC)
+  // Passing a known host function into the VM (TC_REF_HOST_FUNC)
+  assert.equal(call(bar, 1, 2), 8);
 
   // Passing a host function out of the VM (TC_REF_HOST_FUNC)
+  // assert.equal(getBar(), bar);
 });
 
 test('objects-basic', async function () {

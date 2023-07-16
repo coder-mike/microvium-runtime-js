@@ -6,14 +6,15 @@
   - Arrays
   - Uint8Array
   - Host functions
+  - Classes
 - Exceptions and error codes, including with reentrancy
-- mvm_stopAfterNInstructions and mvm_getInstructionCountRemaining
-- Object keys
+- Gas counter (mvm_stopAfterNInstructions and mvm_getInstructionCountRemaining)
+- Object keys and property enumeration
 - The Microvium library doesn't seem to work with linux for me.
-- Gas counter
-- Debug API. Could include the ability to read/write memory and to dump a representation of the heap, registers, stack.
-- Go over all the remaining TODOs in the code
+- Go over all the remaining TODOs and `notImplemented` in the code
 - Get rid of the relative import of microvium in tests (before first release)
 - Make sure Terser is still enabled
 - Unskip the performance tests
-- Check that terser is enabled
+- Remember to change `build.sh` back to release mode (change the build command to use the commented-out release-mode build).
+
+- Debug API. Could include the ability to read/write memory and to dump a representation of the heap, registers, stack.
