@@ -1,11 +1,11 @@
 # To Do
 
+
 - Support for passing arguments/return values of:
   - Closures (by handle)
   - Objects
   - Arrays
   - Uint8Array
-  - Host functions
   - Classes
 - Exceptions and error codes, including with reentrancy
 - Gas counter (mvm_stopAfterNInstructions and mvm_getInstructionCountRemaining)
@@ -17,4 +17,10 @@
 - Unskip the performance tests
 - Remember to change `build.sh` back to release mode (change the build command to use the commented-out release-mode build).
 
+# Nice to have
+
 - Debug API. Could include the ability to read/write memory and to dump a representation of the heap, registers, stack.
+
+# Done
+
+- Host functions

@@ -1,5 +1,5 @@
-// Note: run `npm run build` to create microvium-wasm-base64.ts. While it's
 // technically less efficient to use an embedded base64 string, the extra 12kB
+// Note: run `npm run build` to create microvium-wasm-base64.ts. While it's
 // or so probably won't make any realistic difference to anyone at the moment
 // but it's incredibly convenient for users since there's currently no way to
 // directly `import` a WASM file in JavaScript without setting up a bundler to
@@ -33,6 +33,7 @@ const noOpFunc = Object.freeze(() => {});
 
 const notImplemented = () => { throw new Error('Not implemented') }
 const assert = x => { if (!x) throw new Error('Assertion failed') }
+const unexpected = () => { throw new Error('Unexpected value or control path') }
 
 const TextEncoder_ = typeof require !== 'undefined'
   ? require('util').TextEncoder // node.js
@@ -297,7 +298,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
   const handleFinalizationRegistry = new FinalizationRegistry<Handle>(releaseHandle);
 
   // Table of function indexes imported by the VM
-  const indexByImport: Map<AnyFunction, number> = indexImports();
+  const { indexByImport, importByIndex } = indexImports();
 
   cacheInternedStrings();
   cacheWellKnownValues();
@@ -582,7 +583,8 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       // Host function
       case 0x6: {
         const indexInImportTable = readWord(address);
-        return imports[indexInImportTable];
+        const result = importByIndex.get(indexInImportTable) ?? unexpected();
+        return result;
       }
       // Uint8Array
       case 0x7: {
@@ -653,6 +655,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
 
     const importById = new Map([...Object.entries(imports)].map(([id, f]) => [parseInt(id), f]));
     const indexByImport = new Map<AnyFunction, number>();
+    const importByIndex = new Map<number, AnyFunction>();
 
     const assumedVersion = '7.7.0';
     if (engineVersion !== assumedVersion) {
@@ -671,11 +674,12 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
         throw new Error(`Import ${importId} is required by the VM but not provided by the host`);
       }
       indexByImport.set(importValue, index);
+      importByIndex.set(index, importValue);
       cursor += 2;
       index++;
     }
 
-    return indexByImport;
+    return { indexByImport, importByIndex };
   }
 
   function cacheWellKnownValues() {

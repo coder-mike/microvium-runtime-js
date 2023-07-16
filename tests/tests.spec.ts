@@ -297,7 +297,7 @@ test('passing functions', async function () {
   assert.equal(call(bar, 1, 2), 8);
 
   // Passing a host function out of the VM (TC_REF_HOST_FUNC)
-  // assert.equal(getBar(), bar);
+  assert.equal(getBar(), bar);
 });
 
 test('objects-basic', async function () {
