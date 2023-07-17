@@ -8,7 +8,7 @@ import { MemoryStats, memoryStatsFields } from './memory-stats-fields';
 import { microviumWasmBase64 } from './microvium-wasm-base64';
 import { mvm_TeError } from './microvium/runtime-types'
 
-console.log('Version 1'); // TODO: remove this
+console.log('Version 4'); // TODO: remove this
 
 export type AnyFunction = (...args: any[]) => any;
 export type Exports = Record<number, AnyFunction>;
@@ -21,6 +21,8 @@ export default {
 }
 
 const VM_VALUE_UNDEFINED = 1;
+const VM_VALUE_NULL = 5;
+const VM_VALUE_ZERO = 3;
 const microviumWasmRaw = globalThis.atob(microviumWasmBase64);
 const rawLength = microviumWasmRaw.length;
 const microviumWasmBytes = new Uint8Array(new ArrayBuffer(rawLength));
@@ -90,10 +92,18 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     get _dbgValue() { return valueToHost(this.value); }
   }
 
-  function makeProxy(vmValue: mvm_Value, kind: 'object' | 'function', valueIsConst: boolean) {
+  function makeProxy(vmValue: mvm_Value, kind: 'object' | 'array' | 'function', valueIsConst: boolean) {
     const handle = new Handle(vmValue);
-    const wrappedValue = kind === 'object' ? {} : () => {};
-    const HandlerConstructor = kind === 'object' ? ObjectProxyHandler : FunctionProxyHandler;
+    const wrappedValue =
+      kind === 'object' ? {} :
+      kind === 'array' ? [] :
+      kind === 'function' ? () => {} :
+      unexpected();
+    const HandlerConstructor =
+      kind === 'object' ? ObjectProxyHandler :
+      kind === 'array' ? ObjectProxyHandler :
+      kind === 'function' ? FunctionProxyHandler :
+      unexpected();
 
     const hostValue = new Proxy(wrappedValue, new HandlerConstructor(handle));
     // When the proxy is freed, the handle should also be released.
@@ -146,8 +156,17 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
   class ObjectProxyHandler implements ProxyHandler<{}> {
     constructor (private handle: Handle) {}
 
-    get(target: any, p: string | symbol, receiver: any): any {
+    get(target: any, p: number | string | symbol, receiver: any): any {
+      // Symbols not supported
       if (typeof p !== 'string') return undefined;
+
+      if (/^\d+$/g.test(p)) {
+        // Array index
+        const index = parseInt(p);
+        if (index >= 0 && index <= 0xffff) {
+          p = index;
+        }
+      }
 
       // The property name may need to be copied into the VM, but it might also
       // be resolved to one of the strings in ROM. The interned strings in the
@@ -171,8 +190,16 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       return hostPropValue;
     }
 
-    set(target: any, p: string | symbol, hostValue: any, receiver: any): boolean {
+    set(target: any, p: string | symbol | number, hostValue: any, receiver: any): boolean {
       if (typeof p !== 'string') return false;
+
+      if (/^\d+$/g.test(p)) {
+        // Array index
+        const index = parseInt(p);
+        if (index >= 0 && index <= 0xffff) {
+          p = index;
+        }
+      }
 
       // The property name may need to be copied into the VM, but it might also
       // be resolved to one of the strings in ROM. The interned strings in the
@@ -435,6 +462,8 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     return readWord(gp3);
   }
 
+  // Returns a Handle with refCount 1, which the caller must release. The
+  // allocated memory is not initialized.
   function gcAllocate(size: number, typeCode: number) {
     assert((size & 0xFFF) === size);
     assert((typeCode & 0xF) === typeCode);
@@ -485,6 +514,31 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       }
       case 'object': {
         if (hostValue === null) return 0x05;
+        if (Array.isArray(hostValue)) {
+          // Create an empty array
+          const vmValue = gcAllocate(4, 0x0D /* TC_REF_ARRAY */);
+          writeWord(vmValue.value, VM_VALUE_NULL); // dpData
+          writeWord(vmValue.value + 2, VM_VALUE_ZERO); // viLength
+          const proxy = valueToHost(vmValue.value);
+          for (const [index, value] of hostValue.entries()) {
+            proxy[index] = value;
+          }
+          return vmValue;
+        } else if (hostValue instanceof Set) {
+          throw new Error('Sets are not supported');
+        } else if (hostValue instanceof Map) {
+          throw new Error('Maps are not supported');
+        } else {
+          // Create an empty object
+          const vmValue = gcAllocate(4, 0x0C /* TC_REF_PROPERTY_LIST */);
+          writeWord(vmValue.value, VM_VALUE_NULL); // dpNext
+          writeWord(vmValue.value + 2, VM_VALUE_NULL); // dpProto
+          const proxy = valueToHost(vmValue.value);
+          for (const [index, value] of Object.entries(hostValue)) {
+            proxy[index] = value;
+          }
+          return vmValue;
+        }
         break;
       }
       case 'function': {
@@ -586,6 +640,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
         const result = importByIndex.get(indexInImportTable) ?? unexpected();
         return result;
       }
+
       // Uint8Array
       case 0x7: {
         // Note: this is passed out by-copy because the underlying uint8array
@@ -603,6 +658,13 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       // Object
       case 0xC: {
         return makeProxy(vmValue, 'object', valueIsConst);
+      }
+
+      // TC_REF_ARRAY
+      // TC_REF_FIXED_LENGTH_ARRAY
+      case 0xD:
+      case 0xE: {
+        return makeProxy(vmValue, 'array', valueIsConst);
       }
 
       default: return notImplemented();

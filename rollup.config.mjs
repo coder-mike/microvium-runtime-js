@@ -16,6 +16,13 @@ export default {
     exports: 'named',
     sourcemap: true
   }],
+  watch: {
+    include: "src/**/*.ts",
+    exclude: "node_modules/**/*",
+    chokidar: {
+      usePolling: true
+    }
+  },
   plugins: [
     typescript({
       tsconfig: './tsconfig.json'

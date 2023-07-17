@@ -2,14 +2,12 @@
 
 
 - Support for passing arguments/return values of:
-  - Closures (by handle)
-  - Objects
   - Arrays
   - Uint8Array
   - Classes
 - Exceptions and error codes, including with reentrancy
 - Gas counter (mvm_stopAfterNInstructions and mvm_getInstructionCountRemaining)
-- Object keys and property enumeration
+- Reflect.keys and property enumeration (arrays and objects)
 - The Microvium library doesn't seem to work with linux for me.
 - Go over all the remaining TODOs and `notImplemented` in the code
 - Get rid of the relative import of microvium in tests (before first release)
@@ -20,7 +18,11 @@
 # Nice to have
 
 - Debug API. Could include the ability to read/write memory and to dump a representation of the heap, registers, stack.
+- Prototype proxies
 
 # Done
 
-- Host functions
+- Support for passing arguments/return values of:
+  - Host functions
+  - Closures
+  - Objects

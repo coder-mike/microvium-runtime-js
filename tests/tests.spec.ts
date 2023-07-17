@@ -298,9 +298,10 @@ test('passing functions', async function () {
 
   // Passing a host function out of the VM (TC_REF_HOST_FUNC)
   assert.equal(getBar(), bar);
+
 });
 
-test('objects-basic', async function () {
+test('objects', async function () {
   const source = `
     const romObj = { x: 1, y: 2 };
     let ramObj;
@@ -314,6 +315,7 @@ test('objects-basic', async function () {
     const setX = (obj, v) => obj.x = v;
     const set = (obj, k, v) => obj[k] = v;
     const get = (obj, k) => obj[k];
+    const identity = obj => obj;
 
     vmExport(1, init);
     vmExport(2, getRomObj);
@@ -324,6 +326,7 @@ test('objects-basic', async function () {
     vmExport(7, setX);
     vmExport(8, set);
     vmExport(9, get);
+    vmExport(10, identity);
   `;
 
   const bar = () => {}
@@ -332,7 +335,7 @@ test('objects-basic', async function () {
   const vm = await Runtime.restore(snapshot, {
     [1]: bar
   });
-  const { [1]: init, [2]: getRomObj, [3]: getRamObj, [4]: getX, [5]: getY, [6]: getZ, [7]: setX, [8]: set, [9]: get } = vm.exports;
+  const { [1]: init, [2]: getRomObj, [3]: getRamObj, [4]: getX, [5]: getY, [6]: getZ, [7]: setX, [8]: set, [9]: get, [10]: identity } = vm.exports;
 
   const romObj = getRomObj();
   assert.equal(typeof romObj, 'object');
@@ -353,8 +356,10 @@ test('objects-basic', async function () {
   // Initialize the ramObj
   init();
 
-  // Do all the same/similar tests again with the ramObj. I.e. an object create
-  // after the snapshot rather than before.
+  // Do all the same/similar tests again with the ramObj. I.e. an object created
+  // after the snapshot rather than before. Actually in the current Microvium
+  // implementation, I think all object land up in RAM, but it's worth testing
+  // anyway.
   const ramObj = getRamObj();
   assert.equal(typeof ramObj, 'object');
   assert.equal(getX(ramObj), 3);
@@ -375,6 +380,35 @@ test('objects-basic', async function () {
   assert.equal(ramObj.x, 20);
   ramObj.x = 30;
   assert.equal(ramObj.x, 30);
+
+  // Host objects
+  const hostObj = { x: 42, y: 43, a: 44 };
+  // Each of these will actually be passing in a copy of the object
+  assert.equal(getX(hostObj), 42);
+  assert.equal(getY(hostObj), 43);
+  assert.equal(getZ(hostObj), undefined);
+  assert.equal(get(hostObj, 'x'), 42);
+  assert.equal(get(hostObj, 'y'), 43);
+  assert.equal(get(hostObj, 'z'), undefined);
+  assert.equal(get(hostObj, 'a'), 44); // a is a non-interned string
+
+  // Checking that assignment to the host object doesn't do something stupid
+  setX(hostObj, 50);
+  assert.equal(hostObj.x, 42); // Unfortunate, but expected in the current implementation
+
+  // Object passed to VM and back. Going in, this will be a copy, but coming out
+  // it will be a proxy to the VM object.
+  const objCopy = identity(hostObj);
+  assert.equal(getX(objCopy), 42);
+  assert.equal(getY(objCopy), 43);
+  assert.equal(getZ(objCopy), undefined);
+  assert.equal(get(objCopy, 'x'), 42);
+  assert.equal(get(objCopy, 'y'), 43);
+  assert.equal(get(objCopy, 'z'), undefined);
+  assert.equal(get(objCopy, 'a'), 44); // a is a non-interned string
+  setX(objCopy, 50);
+  assert.equal(hostObj.x, 42); // Unfortunate, but expected in the current implementation
+  assert.equal(objCopy.x, 50);
 });
 
 test('snprintf', async function () {
@@ -404,6 +438,140 @@ test('snprintf', async function () {
   assert.equal(toStr((-1e30)), '-1e+30');
   assert.equal(toStr(1e-30), '1e-30');
   assert.equal(toStr((-1e-30)), '-1e-30');
+});
+
+test('arrays', async function () {
+  const source = `
+    const romArr = [1, 2, 3];
+    // Reflect.ownKeys in Microvium returns a fixed-length array
+    const fixedLenArray = Reflect.ownKeys({a: 1, b: 2, c: 3});
+    let ramArr;
+
+    const init = () => ramArr = [4, 5, 6];
+    const getRomArr = () => romArr;
+    const getRamArr = () => ramArr;
+    const getFixedLenArr = () => fixedLenArray;
+    const get0 = (arr) => arr[0];
+    const get1 = (arr) => arr[1];
+    const get2 = (arr) => arr[2];
+    const get3 = (arr) => arr[3];
+    const get = (arr, i) => arr[i];
+    const set = (arr, i, v) => arr[i] = v;
+    const set0 = (arr, v) => arr[0] = v;
+    const identity = arr => arr;
+
+    vmExport(1, init);
+    vmExport(2, getRomArr);
+    vmExport(3, getRamArr);
+    vmExport(4, get0);
+    vmExport(5, get1);
+    vmExport(6, get2);
+    vmExport(7, get3);
+    vmExport(8, get);
+    vmExport(9, set);
+    vmExport(10, set0);
+    vmExport(11, getFixedLenArr);
+    vmExport(12, identity);
+  `;
+
+  const snapshot = compile(source, this.test!.title!);
+  const vm = await Runtime.restore(snapshot, { });
+  const { [1]: init, [2]: getRomArr, [3]: getRamArr, [4]: get0, [5]: get1, [6]: get2, [7]: get3, [8]: get, [9]: set, [10]: set0, [11]: getFixedLenArr, [12]: identity } = vm.exports;
+
+  const romArr = getRomArr();
+  assert(Array.isArray(romArr));
+  assert.equal(get0(romArr), 1);
+  assert.equal(get1(romArr), 2);
+  assert.equal(get2(romArr), 3);
+  assert.equal(get3(romArr), undefined);
+  assert.equal(get(romArr, 0), 1);
+  assert.equal(get(romArr, 1), 2);
+  assert.equal(get(romArr, 2), 3);
+  assert.equal(get(romArr, 3), undefined);
+
+  // This accesses the values through the proxy getter. This directly calls Microvium's getProperty function.
+  assert.equal(romArr.length, 3);
+  assert.equal(romArr[0], 1);
+  assert.equal(romArr[1], 2);
+  assert.equal(romArr[2], 3);
+  assert.equal(romArr[3], undefined);
+  assert.equal((romArr as any).x, undefined);
+
+  // Initialize the ramArr
+  init();
+
+  // Do all the same/similar tests again with the ramArr. I.e. an array created
+  // after the snapshot rather than before. Actually in the current Microvium
+  // implementation, I think all object land up in RAM, but it's worth testing
+  // anyway.
+  const ramArr = getRamArr();
+  assert(Array.isArray(ramArr));
+  assert.equal(get0(ramArr), 4);
+  assert.equal(get1(ramArr), 5);
+  assert.equal(get2(ramArr), 6);
+  assert.equal(get3(ramArr), undefined);
+  assert.equal(get(ramArr, 0), 4);
+  assert.equal(get(ramArr, 1), 5);
+  assert.equal(get(ramArr, 2), 6);
+  assert.equal(get(ramArr, 3), undefined);
+  set(ramArr, 0, 7);
+  assert.equal(get(ramArr, 0), 7);
+
+  // This accesses the values through the proxy getter. This directly calls Microvium's getProperty function.
+  assert.equal(ramArr.length, 3);
+  assert.equal(ramArr[0], 7);
+  assert.equal(ramArr[1], 5);
+  assert.equal(ramArr[2], 6);
+  assert.equal(ramArr[3], undefined);
+  assert.equal((ramArr as any).x, undefined);
+  ramArr[0] = 8;
+  assert.equal(ramArr[0], 8);
+
+  const fixedLenArray = getFixedLenArr();
+  assert(Array.isArray(fixedLenArray));
+  assert.equal(fixedLenArray.length, 3);
+  assert.equal(fixedLenArray[0], 'a');
+  assert.equal(fixedLenArray[1], 'b');
+  assert.equal(fixedLenArray[2], 'c');
+  assert.equal(fixedLenArray[3], undefined);
+  assert.equal((fixedLenArray as any).x, undefined);
+  // Fixed-length arrays are immutable
+  assert.throws(() => fixedLenArray[0] = 5, { message: 'Microvium Error: MVM_E_TYPE_ERROR (12)' });
+  assert.equal(fixedLenArray[0], 'a');
+  assert.throws(() => fixedLenArray.length = 5, { message: 'Microvium Error: MVM_E_TYPE_ERROR (12)' });
+  assert.throws(() => fixedLenArray[3] = 5, { message: 'Microvium Error: MVM_E_TYPE_ERROR (12)' });
+
+  const hostArray = [42, 43, 44];
+  // Each of these will actually be passing in a copy of the array
+  assert.equal(get0(hostArray), 42);
+  assert.equal(get1(hostArray), 43);
+  assert.equal(get2(hostArray), 44);
+  assert.equal(get3(hostArray), undefined);
+  assert.equal(get(hostArray, 'length'), 3);
+  assert.equal(get(hostArray, 0), 42);
+  assert.equal(get(hostArray, 1), 43);
+  assert.equal(get(hostArray, 2), 44);
+  assert.equal(get(hostArray, 3), undefined);
+
+  // Checking that assignment to the host array doesn't do something stupid
+  set0(hostArray, 50);
+  assert.equal(hostArray[0], 42); // Unfortunate, but expected in the current implementation
+
+  // Array passed to VM and back. Going in, this will be a copy, but coming out
+  // it will be a proxy to the VM array.
+  const arrayCopy = identity(hostArray);
+  assert.equal(get0(arrayCopy), 42);
+  assert.equal(get1(arrayCopy), 43);
+  assert.equal(get2(arrayCopy), 44);
+  assert.equal(get3(arrayCopy), undefined);
+  assert.equal(get(arrayCopy, 'length'), 3);
+  assert.equal(get(arrayCopy, 0), 42);
+  assert.equal(get(arrayCopy, 1), 43);
+  assert.equal(get(arrayCopy, 2), 44);
+  assert.equal(get(arrayCopy, 3), undefined);
+  set0(arrayCopy, 50);
+  assert.equal(hostArray[0], 42); // Unfortunate, but expected in the current implementation
+  assert.equal(arrayCopy[0], 50);
 });
 
 

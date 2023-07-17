@@ -13,7 +13,8 @@ Implemented as a lightweight JavaScript wrapper around a WebAssembly build of `m
 
 - As on a microcontroller, scripts running in Microvium can only use up to 64kB of RAM.
 - The WebAssembly memory is pre-allocated as 256 kB (see [memory usage](#memory-usage) below), no matter how small the actual script is.
-- Objects and functions passed from the VM to the host are not identity-preserving, meaning that if you pass the same object multiple times, you may get a different proxy in the host each time.
+- Objects and arrays passed into the VM from the host are always passed by copy, not by reference.
+- Objects and functions passed out of the VM to the host are not identity-preserving, meaning that if you pass the same object multiple times, you may get a different proxy in the host each time.
 
 
 ## Install

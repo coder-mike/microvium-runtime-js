@@ -1,7 +1,22 @@
 {
   "terminal.integrated.defaultProfile.windows": "Ubuntu (WSL)",
   "cSpell.words": [
-    "fmod"
+    "Emscripten",
+    "fmod",
+    "isdigit",
+    "isfinite",
+    "isinf",
+    "isnan",
+    "isspace",
+    "libc",
+    "memcmp",
+    "memcpy",
+    "memset",
+    "signbit",
+    "strlen",
+    "Unskip",
+    "WABT",
+    "wasi"
   ],
   "files.associations": {
     "*.mvms": "javascript",
