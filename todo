@@ -1,9 +1,6 @@
 # To Do
 
-
 - Support for passing arguments/return values of:
-  - Arrays
-  - Uint8Array
   - Classes
 - Exceptions and error codes, including with reentrancy
 - Gas counter (mvm_stopAfterNInstructions and mvm_getInstructionCountRemaining)
@@ -26,3 +23,5 @@
   - Host functions
   - Closures
   - Objects
+  - Arrays
+  - Uint8Array

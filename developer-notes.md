@@ -40,6 +40,7 @@ fi
 I run the following from WSL:
 
 ```sh
+npm run update-microvium  # Only if Microvium has changed since the last build
 ./scripts/build.sh
 ```
 

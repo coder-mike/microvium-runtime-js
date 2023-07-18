@@ -31,8 +31,9 @@ mkdir -p build
 mkdir -p dist
 
 # It looks like chrome devtools debugger is looking for the C source files here
+rm -rf build/src
 mkdir -p build/src
-cp -r src/microvium build/src/microvium
+cp -r src/microvium build/src
 cp src/*.{c,h} build/src
 
 $CC -o build/microvium.o -c src/microvium/microvium.c

@@ -574,6 +574,141 @@ test('arrays', async function () {
   assert.equal(arrayCopy[0], 50);
 });
 
+test('Uint8Array', async function () {
+  const source = `
+    const romArr = Microvium.newUint8Array(3);
+    romArr[0] = 1;
+    romArr[1] = 2;
+    romArr[2] = 3;
+    let ramArr;
+
+    const init = () => {
+      ramArr = Microvium.newUint8Array(3);
+      ramArr[0] = 4;
+      ramArr[1] = 5;
+      ramArr[2] = 6;
+    }
+    const getRomArr = () => romArr;
+    const getRamArr = () => ramArr;
+    const get0 = (arr) => arr[0];
+    const get1 = (arr) => arr[1];
+    const get2 = (arr) => arr[2];
+    const get3 = (arr) => arr[3];
+    const get = (arr, i) => arr[i];
+    const set = (arr, i, v) => arr[i] = v;
+    const set0 = (arr, v) => arr[0] = v;
+    const identity = arr => arr;
+
+    vmExport(1, init);
+    vmExport(2, getRomArr);
+    vmExport(3, getRamArr);
+    vmExport(4, get0);
+    vmExport(5, get1);
+    vmExport(6, get2);
+    vmExport(7, get3);
+    vmExport(8, get);
+    vmExport(9, set);
+    vmExport(10, set0);
+    vmExport(12, identity);
+  `;
+
+  const snapshot = compile(source, this.test!.title!);
+  const vm = await Runtime.restore(snapshot, { });
+  const { [1]: init, [2]: getRomArr, [3]: getRamArr, [4]: get0, [5]: get1, [6]: get2, [7]: get3, [8]: get, [9]: set, [10]: set0, [12]: identity } = vm.exports;
+
+  const romArr_ = getRomArr();
+  assert(romArr_.length === 3);
+  const romArr = romArr_.slice();
+  assert(romArr instanceof Uint8Array);
+  assert.equal(get0(romArr_), 1);
+  assert.equal(get1(romArr_), 2);
+  assert.equal(get2(romArr_), 3);
+  assert.equal(get3(romArr_), undefined);
+  assert.equal(get(romArr_, 0), 1);
+  assert.equal(get(romArr_, 1), 2);
+  assert.equal(get(romArr_, 2), 3);
+  assert.equal(get(romArr_, 3), undefined);
+
+  // Check different slices
+  assert.deepEqual(romArr_.slice(0), new Uint8Array([1, 2, 3]));
+  assert.deepEqual(romArr_.slice(1), new Uint8Array([2, 3]));
+  assert.deepEqual(romArr_.slice(2), new Uint8Array([3]));
+  assert.deepEqual(romArr_.slice(3), new Uint8Array([]));
+  assert.deepEqual(romArr_.slice(0, 0), new Uint8Array([]));
+  assert.deepEqual(romArr_.slice(0, 1), new Uint8Array([1]));
+  assert.deepEqual(romArr_.slice(0, 2), new Uint8Array([1, 2]));
+  assert.deepEqual(romArr_.slice(0, 3), new Uint8Array([1, 2, 3]));
+  assert.deepEqual(romArr_.slice(0, 4), new Uint8Array([1, 2, 3]));
+  assert.deepEqual(romArr_.slice(1, 1), new Uint8Array([]));
+  assert.deepEqual(romArr_.slice(1, 2), new Uint8Array([2]));
+  // Negative indices
+  assert.deepEqual(romArr_.slice(-1), new Uint8Array([3]));
+  assert.deepEqual(romArr_.slice(-2, -1), new Uint8Array([2]));
+  assert.deepEqual(romArr_.slice(0, -1), new Uint8Array([1, 2]));
+  // Out of range
+  assert.deepEqual(romArr_.slice(0, 5), new Uint8Array([1, 2, 3]));
+  assert.deepEqual(romArr_.slice(1, 5), new Uint8Array([2, 3]));
+  assert.deepEqual(romArr_.slice(4, 5), new Uint8Array([]));
+
+  assert.equal(romArr.length, 3);
+  assert.equal(romArr[0], 1);
+  assert.equal(romArr[1], 2);
+  assert.equal(romArr[2], 3);
+  assert.equal(romArr[3], undefined);
+  assert.equal((romArr as any).x, undefined);
+
+  // Initialize the ramArr
+  init();
+
+  // Do all the same/similar tests again with the ramArr. I.e. an array created
+  // after the snapshot rather than before. Actually in the current Microvium
+  // implementation, I think all object land up in RAM, but it's worth testing
+  // anyway.
+  const ramArr_ = getRamArr();
+  assert(ramArr_.length === 3);
+  const ramArr = ramArr_.slice();
+  assert(ramArr instanceof Uint8Array);
+  assert.equal(get0(ramArr_), 4);
+  assert.equal(get1(ramArr_), 5);
+  assert.equal(get2(ramArr_), 6);
+  assert.equal(get3(ramArr_), undefined);
+  assert.equal(get(ramArr_, 0), 4);
+  assert.equal(get(ramArr_, 1), 5);
+  assert.equal(get(ramArr_, 2), 6);
+  assert.equal(get(ramArr_, 3), undefined);
+  set(ramArr_, 0, 7);
+  assert.equal(get(ramArr_, 0), 7);
+  assert.equal(ramArr_.slice(0, 1)[0], 7);
+
+  assert.equal(ramArr.length, 3);
+  assert.equal(ramArr[0], 4); // Note: still has the old value because it's a copy
+  assert.equal(ramArr[1], 5);
+  assert.equal(ramArr[2], 6);
+  assert.equal(ramArr[3], undefined);
+
+  // Check mutation using `set`
+  ramArr_.set([8, 9, 10]);
+  assert.deepEqual(ramArr_.slice(), new Uint8Array([8, 9, 10]));
+  assert.throws(() => ramArr_.set([11, 12, 13], 1), { message: 'offset is out of bounds' });
+  ramArr_.set([11, 12], 1);
+  assert.deepEqual(ramArr_.slice(), new Uint8Array([8, 11, 12]));
+
+  const hostArray = new Uint8Array([42, 43, 44]);
+  // Each of these will actually be passing in a copy of the array
+  assert.equal(get0(hostArray), 42);
+  assert.equal(get1(hostArray), 43);
+  assert.equal(get2(hostArray), 44);
+  assert.equal(get3(hostArray), undefined);
+  assert.equal(get(hostArray, 'length'), 3);
+  assert.equal(get(hostArray, 0), 42);
+  assert.equal(get(hostArray, 1), 43);
+  assert.equal(get(hostArray, 2), 44);
+  assert.equal(get(hostArray, 3), undefined);
+
+  // Checking that assignment to the host array doesn't do something stupid
+  set0(hostArray, 50);
+  assert.equal(hostArray[0], 42); // Unfortunate, but expected in the current implementation
+});
 
 function loadOnNode(source) {
   const exports: any = {};

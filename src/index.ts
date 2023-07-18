@@ -16,6 +16,29 @@ export type Imports = Record<number, AnyFunction>;
 
 type mvm_Value = number;
 
+export interface MicroviumUint8Array {
+  /**
+   * The length of the Uint8Array.
+   */
+  readonly length: number;
+
+  /**
+   * Given an optional range, slice will return a copy of the given data as a
+   * Uint8Array.
+   *
+   * @param begin The beginning index of the slice (inclusive). If omitted,
+   * defaults to 0.
+   * @param end The ending index of the slice (exclusive). If omitted, defaults
+   * to the length of the array.
+   */
+  slice(begin?: number, end?: number): Uint8Array;
+
+  /**
+   * Sets the data in the Uint8Array to the given values.
+   */
+  set(array: ArrayLike<number>, offset?: number): void;
+}
+
 export default {
   restore
 }
@@ -524,10 +547,17 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
             proxy[index] = value;
           }
           return vmValue;
+        } else if (hostValue instanceof Uint8Array) {
+          const handle = gcAllocate(hostValue.length, 0x07 /* TC_REF_UINT8_ARRAY */);
+          const ptr = handle.value;
+          mem8.set(hostValue, ptr);
+          return handle;
         } else if (hostValue instanceof Set) {
           throw new Error('Sets are not supported');
         } else if (hostValue instanceof Map) {
           throw new Error('Maps are not supported');
+        } else if (ArrayBuffer.isView(hostValue)) {
+          throw new Error('Type arrays other than Uint8Array are not supported');
         } else {
           // Create an empty object
           const vmValue = gcAllocate(4, 0x0C /* TC_REF_PROPERTY_LIST */);
@@ -557,22 +587,14 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     return notImplemented();
   }
 
-  function valueToHost(vmValue) {
-    // Int14
+  function valueToAddress(vmValue) {
     if ((vmValue & 3) === 3) {
-      // Use the 16th bit as the sign bit
-      return (vmValue << 16) >> 18;
+      throw new Error('Expected address value but got int14');
     }
-
-    if (cachedValueToHost.has(vmValue)) {
-      return cachedValueToHost.get(vmValue)!;
-    }
-
-    let address;
 
     // Short pointer
     if ((vmValue & 1) === 0) {
-      address = vmValue;
+      return vmValue;
     }
 
     // Bytecode-mapped pointer
@@ -586,8 +608,22 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       // a value is a constant, I think handles will not be used).
 
       // Plain bytecode pointer
-      address = romStart + (vmValue & 0xFFFC);
+      return romStart + (vmValue & 0xFFFC);
     }
+  }
+
+  function valueToHost(vmValue) {
+    // Int14
+    if ((vmValue & 3) === 3) {
+      // Use the 16th bit as the sign bit
+      return (vmValue << 16) >> 18;
+    }
+
+    if (cachedValueToHost.has(vmValue)) {
+      return cachedValueToHost.get(vmValue)!;
+    }
+
+    const address = valueToAddress(vmValue);
 
     const result = addressValueToHost(vmValue, address);
 
@@ -643,12 +679,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
 
       // Uint8Array
       case 0x7: {
-        // Note: this is passed out by-copy because the underlying uint8array
-        // can move in memory. If we wanted it to be mutable, we'd have to
-        // implement the whole Uint8Array interface on top of a Microvium
-        // handle.
-        // TODO: This doesn't match the plan as documented in the readme.
-        return new Uint8Array(memory.buffer.slice(address, size - 1));
+        return wrapUint8Array(vmValue, size, valueIsConst);
       }
       // Class
       case 0x9: {
@@ -755,5 +786,54 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     cachedValueToHost.set(0x1D, 'length');
     cachedValueToHost.set(0x21, '__proto__');
     cachedValueToHost.set(0x25, noOpFunc);
+  }
+
+  function wrapUint8Array(vmValue: mvm_Value, size: number, valueIsConst: boolean): MicroviumUint8Array {
+    const handle = new Handle(vmValue);
+
+    const hostValue: MicroviumUint8Array = {
+      slice(begin, end) {
+        if (begin === undefined) begin = 0;
+        if (end === undefined) end = size;
+        if (begin < 0) begin += size;
+        if (end < 0) end += size;
+        if (begin < 0) begin = 0;
+        if (end < begin) end = begin;
+        if (end > size) end = size;
+        const address = valueToAddress(handle.value);
+        // Note: array buffer is slice will create a copy
+        return new Uint8Array(memory.buffer.slice(address + begin, address + end));
+      },
+
+      get length() {
+        return size;
+      },
+
+      set(array, offset = 0) {
+        if (!(array instanceof Uint8Array) &&
+            !Array.isArray(array)
+        ) {
+          throw new Error(`Expected Uint8Array or Array`);
+        }
+        if (array.length + offset > size) throw new RangeError('offset is out of bounds');
+        const address = valueToAddress(handle.value);
+        mem8.set(array, address + offset);
+      }
+    }
+
+    // When the MicroviumUint8Array is freed, the handle should also be released.
+    handleFinalizationRegistry.register(hostValue, handle);
+
+    // If the host passes this object back to the VM, it will be passed
+    // by-reference. Since the object can move, we need to cache it by the
+    // handle. We don't need to `addRef` on the handle here because its
+    // lifetime is already locked to the hostValue which is the cache key.
+    cachedValueToVm1.set(hostValue, handle);
+
+    if (valueIsConst) {
+      cachedValueToVm2.set(hostValue, vmValue);
+    }
+
+    return hostValue;
   }
 }
