@@ -189,7 +189,7 @@ test('memoryStats', async function () {
   assert.equal(stats1.totalSize, 82);
   vm.exports[1]();
   assert.equal(stats2.totalSize, 15576);
-  assert.equal(stats2.stackHeight, 16);
+  assert.equal(stats2.stackHeight, 18);
 })
 
 test('createSnapshot', async function () {
@@ -708,6 +708,72 @@ test('Uint8Array', async function () {
   // Checking that assignment to the host array doesn't do something stupid
   set0(hostArray, 50);
   assert.equal(hostArray[0], 42); // Unfortunate, but expected in the current implementation
+});
+
+test('Classes', async function () {
+  const source = `
+    class A {
+      constructor() { this.x = 1; }
+      getX() { return this.x; }
+      static getY() { return this.y; }
+      static getZ() { return this.z; }
+    }
+    A.y = 2;
+    const getA = () => A;
+    const getAInst = () => new A();
+    const construct = X => new X();
+    const isInstanceOf = (obj, Class) => obj.__proto__ === Class.prototype;
+    vmExport(0, getA);
+    vmExport(1, getAInst);
+    vmExport(2, construct);
+    vmExport(3, isInstanceOf);
+  `;
+
+  const snapshot = compile(source, this.test!.title!);
+  const vm = await Runtime.restore(snapshot, { });
+  const { [0]: getA, [1]: getAInst, [2]: construct, [3]: isInstanceOf } = vm.exports;
+
+  const A = getA();
+  const a = getAInst();
+
+  assert.equal(A.y, 2);
+  assert.equal(A.z, undefined);
+  assert.equal(A.getY(), 2);
+  assert.equal(A.getZ(), undefined);
+  assert.equal(a.x, 1);
+  assert.equal(a.getX(), 1);
+  assert(isInstanceOf(a, A));
+
+  a.x = 3;
+  assert.equal(a.x, 3);
+  assert.equal(a.getX(), 3);
+
+  A.z = 4;
+  assert.equal(A.z, 4);
+  assert.equal(A.getZ(), 4);
+
+  // Test construction
+  const inst2 = construct(A); // Passing the class back into the VM
+  assert.equal(inst2.x, 1);
+  assert.equal(inst2.getX(), 1);
+  assert(isInstanceOf(inst2, A));
+
+  // Test construction in the host
+  const inst3 = new A();
+  assert.equal(inst3.x, 1);
+  assert.equal(inst3.getX(), 1);
+  assert(isInstanceOf(inst3, A));
+
+  // Not supported: prototype consistency
+  //
+  // This is actually quite complicated to do correctly, I think, because we
+  // cannot currently maintain the identity of VM objects in the host, and the
+  // identity of prototypes is important for `instanceof`.
+  assert.equal(Reflect.getPrototypeOf(a), Object.prototype);
+
+  // Not supported: passing a host class to the VM
+  class A2 {}
+  assert.throws(() => construct(A2), { message: 'Host functions cannot be passed to the VM' });
 });
 
 function loadOnNode(source) {

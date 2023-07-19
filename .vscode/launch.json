@@ -15,7 +15,7 @@
           "--timeout",
           "999999",
           "--colors",
-          "--grep=\"Uint8Array\"",
+          "--grep=\"Classes\"",
           "${workspaceFolder}/tests"
       ],
       // "runtimeArgs": ["--trace-warnings"],

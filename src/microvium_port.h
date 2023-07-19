@@ -51,3 +51,5 @@ extern void mvm_fatalError(int e);
 #define MVM_ALL_ERRORS_FATAL 1
 
 #define MVM_SNPRINTF mvm_snprintf
+
+#define MVM_SAFE_MODE 1

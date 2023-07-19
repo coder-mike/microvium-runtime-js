@@ -8,11 +8,13 @@ import { MemoryStats, memoryStatsFields } from './memory-stats-fields';
 import { microviumWasmBase64 } from './microvium-wasm-base64';
 import { mvm_TeError } from './microvium/runtime-types'
 
-console.log('Version 4'); // TODO: remove this
+console.log('Version 5'); // TODO: remove this
 
 export type AnyFunction = (...args: any[]) => any;
 export type Exports = Record<number, AnyFunction>;
 export type Imports = Record<number, AnyFunction>;
+
+type ProxyKind = 'object' | 'array' | 'function' | 'class';
 
 type mvm_Value = number;
 
@@ -46,6 +48,7 @@ export default {
 const VM_VALUE_UNDEFINED = 1;
 const VM_VALUE_NULL = 5;
 const VM_VALUE_ZERO = 3;
+const MAX_INDEX = 0x3FFF;
 const microviumWasmRaw = globalThis.atob(microviumWasmBase64);
 const rawLength = microviumWasmRaw.length;
 const microviumWasmBytes = new Uint8Array(new ArrayBuffer(rawLength));
@@ -59,6 +62,7 @@ const noOpFunc = Object.freeze(() => {});
 const notImplemented = () => { throw new Error('Not implemented') }
 const assert = x => { if (!x) throw new Error('Assertion failed') }
 const unexpected = () => { throw new Error('Unexpected value or control path') }
+const assertUnreachable = (value: never) => { throw new Error('Unexpected value or control path') }
 
 const TextEncoder_ = typeof require !== 'undefined'
   ? require('util').TextEncoder // node.js
@@ -115,20 +119,16 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     get _dbgValue() { return valueToHost(this.value); }
   }
 
-  function makeProxy(vmValue: mvm_Value, kind: 'object' | 'array' | 'function', valueIsConst: boolean) {
+  function makeProxy(vmValue: mvm_Value, kind: ProxyKind, valueIsConst: boolean) {
     const handle = new Handle(vmValue);
     const wrappedValue =
       kind === 'object' ? {} :
+      kind === 'class' ? function Class () {} :
       kind === 'array' ? [] :
       kind === 'function' ? () => {} :
       unexpected();
-    const HandlerConstructor =
-      kind === 'object' ? ObjectProxyHandler :
-      kind === 'array' ? ObjectProxyHandler :
-      kind === 'function' ? FunctionProxyHandler :
-      unexpected();
 
-    const hostValue = new Proxy(wrappedValue, new HandlerConstructor(handle));
+    const hostValue = new Proxy(wrappedValue, new MicroviumProxyHandler(handle, kind));
     // When the proxy is freed, the handle should also be released.
     handleFinalizationRegistry.register(hostValue, handle);
 
@@ -145,10 +145,20 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     return hostValue;
   }
 
-  class FunctionProxyHandler implements ProxyHandler<() => {}> {
-    constructor (private handle: Handle) {}
+  class MicroviumProxyHandler implements ProxyHandler<any> {
+    constructor (private handle: Handle, private kind: ProxyKind) {}
 
-    apply(target: any, thisArg: any, hostArgs: any[]): any {
+    getPrototypeOf(target: any): object | null {
+      switch (this.kind) {
+        case 'array': return Array.prototype;
+        case 'object': return Object.prototype;
+        case 'class': return Function.prototype;
+        case 'function': return Function.prototype;
+        default: return assertUnreachable(this.kind);
+      }
+    }
+
+    makeCall(thisArg: any, hostArgs: any[]): any {
       // We only have space for 64 arguments in argsTemp
       const maxArgs = 64;
       if (hostArgs.length > maxArgs) {
@@ -166,27 +176,60 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
         writeWord(pArgsTemp + i * 2, vmArg);
       }
 
-      check(mvm_call(vm, this.handle.value, gp2, pArgsTemp, hostArgs.length));
+      let thisValue: mvm_Value;
+
+      // A design choice here is that only Microvium objects can be used as the
+      // `this` value. It doesn't really make sense from a usage perspective to
+      // pass the `this` value in by-copy, and host objects in the current
+      // design are only ever passed by-copy.
+      if (cachedValueToVm1.has(thisArg)) {
+        thisValue = cachedValueToVm1.get(thisArg)!.value;
+      } else if (cachedValueToVm2.has(thisArg)) {
+        thisValue = cachedValueToVm2.get(thisArg)!;
+      } else {
+        thisValue = VM_VALUE_UNDEFINED;
+      }
+
+      check(mvm_callEx(vm, this.handle.value, thisValue, gp2, pArgsTemp, hostArgs.length));
       const vmResult = readWord(gp2);
+
       for (const arg of converted) {
         if (arg instanceof Handle) arg.release();
       }
       const hostResult = valueToHost(vmResult);
       return hostResult;
     }
-  }
 
-  class ObjectProxyHandler implements ProxyHandler<{}> {
-    constructor (private handle: Handle) {}
+    apply(target: any, thisArg: any, hostArgs: any[]): any {
+      if (this.kind !== 'function') {
+        throw new Error(`Cannot call non-function`);
+      }
+
+      return this.makeCall(thisArg, hostArgs);
+    }
+
+    construct(target: any, hostArgs: any[], newTarget?: any): object {
+      if (this.kind !== 'class') {
+        throw new Error(`Cannot construct non-class`);
+      }
+
+      // The microvium engine will automatically `new` if the target is a class.
+      return this.makeCall(undefined, hostArgs);
+    }
 
     get(target: any, p: number | string | symbol, receiver: any): any {
       // Symbols not supported
       if (typeof p !== 'string') return undefined;
 
+      if (this.kind === 'function') {
+        // Functions in microvium don't have properties
+        return undefined;
+      }
+
       if (/^\d+$/g.test(p)) {
         // Array index
         const index = parseInt(p);
-        if (index >= 0 && index <= 0xffff) {
+        if (index >= 0 && index <= MAX_INDEX) {
           p = index;
         }
       }
@@ -215,6 +258,11 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
 
     set(target: any, p: string | symbol | number, hostValue: any, receiver: any): boolean {
       if (typeof p !== 'string') return false;
+
+      if (this.kind === 'function') {
+        // Functions in microvium don't have properties
+        return false;
+      }
 
       if (/^\d+$/g.test(p)) {
         // Array index
@@ -286,7 +334,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     generalPurpose3,
     generalPurpose4,
     mvm_resolveExports,
-    mvm_call,
+    mvm_callEx,
     mvm_newNumber,
     argsTemp,
     mvm_gc_allocateWithHeader,
@@ -297,6 +345,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     newHandle,
     getProperty,
     setProperty,
+    newInst,
   } = exports;
   const engineVersion = `${readByte(engineMajorVersion.value)}.${readByte(engineMinorVersion.value)}.0`;
 
@@ -681,9 +730,9 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       case 0x7: {
         return wrapUint8Array(vmValue, size, valueIsConst);
       }
-      // Class
+      // MVM_REF_CLASS
       case 0x9: {
-        return notImplemented();
+        return makeProxy(vmValue, 'class', valueIsConst);
       }
 
       // Object

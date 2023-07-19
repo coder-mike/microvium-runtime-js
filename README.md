@@ -15,7 +15,7 @@ Implemented as a lightweight JavaScript wrapper around a WebAssembly build of `m
 - The WebAssembly memory is pre-allocated as 256 kB (see [memory usage](#memory-usage) below), no matter how small the actual script is.
 - Objects and arrays passed into the VM from the host are always passed by copy, not by reference.
 - Objects and functions passed out of the VM to the host are not identity-preserving, meaning that if you pass the same object multiple times, you may get a different proxy in the host each time.
-
+- Object prototypes are not preserved when passing objects between the VM and host.
 
 ## Install
 

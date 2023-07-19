@@ -79,5 +79,3 @@ void setBreakpointCallback(mvm_VM* vm) {
 mvm_TeError getProp(mvm_VM* vm, mvm_Handle* pObjectValue, mvm_Handle* pPropertyName, mvm_Handle* out_propertyValue) {
   return getProperty(vm, &pObjectValue->_value, &pPropertyName->_value, &out_propertyValue->_value);
 }
-
-//mvm_TeError setProperty(mvm_VM* vm, mvm_Value* pOperands);
