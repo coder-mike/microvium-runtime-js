@@ -776,6 +776,43 @@ test('Classes', async function () {
   assert.throws(() => construct(A2), { message: 'Host functions cannot be passed to the VM' });
 });
 
+test('Error handling', async function () {
+  const source = `
+    class Error { constructor(message) { this.message = message } }
+    const thrower = () => { throw new Error('foo'); };
+
+    const hostThrower = vmImport(0);
+    const catcher = () => {
+      try {
+        hostThrower();
+      } catch (e) {
+        return e.message;
+      }
+    };
+    const callHostNoCatch = () => {
+      hostThrower();
+    };
+
+    vmExport(0, thrower);
+    vmExport(1, catcher);
+    vmExport(2, callHostNoCatch);
+  `;
+  const snapshot = compile(source, this.test!.title!);
+  const hostThrower = () => { throw new Error('host error'); };
+  const vm = await Runtime.restore(snapshot, { [0]: hostThrower });
+  const { [0]: thrower, [1]: catcher, [2]: callHostNoCatch } = vm.exports;
+
+  // Exception thrown by VM and caught by host
+  assert.throws(() => thrower(), e => (e as any).message === 'foo');
+
+  // Exception thrown by host and caught by VM
+  assert.equal(catcher(), 'host error');
+
+  // Exception thrown by host and not caught by VM
+  assert.throws(() => callHostNoCatch(), e => (e as any).message === 'host error');
+
+});
+
 function loadOnNode(source) {
   const exports: any = {};
   eval(`((vmExport) => {${source}})`)((k, v) => exports[k] = v);

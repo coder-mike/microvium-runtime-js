@@ -190,13 +190,18 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
         thisValue = VM_VALUE_UNDEFINED;
       }
 
-      check(mvm_callEx(vm, this.handle.value, thisValue, gp2, pArgsTemp, hostArgs.length));
+      const err = mvm_callEx(vm, this.handle.value, thisValue, gp2, pArgsTemp, hostArgs.length);
       const vmResult = readWord(gp2);
+      const hostResult = valueToHost(vmResult);
+      if (err === 44 /* MVM_E_UNCAUGHT_EXCEPTION */) {
+        throw hostResult;
+      } else {
+        check(err);
+      }
 
       for (const arg of converted) {
         if (arg instanceof Handle) arg.release();
       }
-      const hostResult = valueToHost(vmResult);
       return hostResult;
     }
 
@@ -509,7 +514,15 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       vmpArg += 2;
     }
     const resolveTo = imports[hostFunctionID];
-    const result = resolveTo(...hostArgs);
+    let result: any;
+    let errorCode;
+    try {
+      result = resolveTo(...hostArgs);
+      errorCode = 0;
+    } catch (e) {
+      result = e;
+      errorCode = 44 /* MVM_E_UNCAUGHT_EXCEPTION */;
+    }
     let vmResult = valueToVM(result);
     // We can release the handle immediately because we're about to pass the
     // value back to the VM and no GC cycle can happen between now and when the
@@ -520,7 +533,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       vmResult = value;
     }
     writeWord(out_vmpResult, vmResult);
-    return 0;
+    return errorCode;
   }
 
   function resolveExport(id) {
@@ -615,6 +628,10 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
           const proxy = valueToHost(vmValue.value);
           for (const [index, value] of Object.entries(hostValue)) {
             proxy[index] = value;
+          }
+          if (hostValue instanceof Error) {
+            // Hack because `message` is a non-enumerable property on Error
+            proxy['message'] = hostValue.message;
           }
           return vmValue;
         }

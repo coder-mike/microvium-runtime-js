@@ -2441,57 +2441,7 @@ SUB_OP_EXTENDED_1: {
       CODE_COVERAGE(106); // Hit
 
       reg1 = POP(); // The exception value
-
-      // Find the closest catch block
-      reg2 = reg->catchTarget;
-
-      // If none, it's an uncaught exception
-      if (reg2 == VM_VALUE_UNDEFINED) {
-        CODE_COVERAGE(208); // Hit
-
-        if (out_result) {
-          *out_result = reg1;
-        }
-        err = MVM_E_UNCAUGHT_EXCEPTION;
-        goto SUB_EXIT;
-      } else {
-        CODE_COVERAGE(209); // Hit
-      }
-
-      VM_ASSERT(vm, ((intptr_t)reg2 & 1) == 1);
-
-      // Unwind the stack. regP1 is the stack pointer address we want to land up at
-      regP1 = (uint16_t*)(((intptr_t)getBottomOfStack(vm->stack) + (intptr_t)reg2) & ~1);
-      VM_ASSERT(vm, pStackPointer >= getBottomOfStack(vm->stack));
-      VM_ASSERT(vm, pStackPointer < getTopOfStackSpace(vm->stack));
-
-      while (pFrameBase > regP1) {
-        CODE_COVERAGE(211); // Hit
-
-        // Near the beginning of mvm_call, we set `catchTarget` to undefined
-        // (and then restore at the end), which should direct exceptions through
-        // the path of "uncaught exception" above, so no frame here should ever
-        // be a host frame.
-        VM_ASSERT(vm, !(reg->argCountAndFlags & AF_CALLED_FROM_HOST));
-
-        // In the current frame structure, the size of the preceding frame is
-        // saved 4 words ahead of the frame base
-        pStackPointer = pFrameBase;
-        POP_REGISTERS();
-      }
-
-      pStackPointer = regP1;
-
-      // The next catch target is the outer one
-      reg->catchTarget = pStackPointer[0];
-
-      // Jump to the catch block
-      reg2 = pStackPointer[1];
-      VM_ASSERT(vm, (reg2 & 1) == 1);
-      lpProgramCounter = LongPtr_add(vm->lpBytecode, reg2 & ~1);
-
-      // Push the exception to the stack for the catch block to use
-      goto SUB_TAIL_POP_0_PUSH_REG1;
+      goto SUB_THROW;
     }
 
 /* ------------------------------------------------------------------------- */
@@ -3230,6 +3180,65 @@ SUB_OP_EXTENDED_2: {
 
 
 /* ------------------------------------------------------------------------- */
+/*                             SUB_THROW                                     */
+/*   Expects:                                                                */
+/*     reg1: The exception value                                             */
+/* ------------------------------------------------------------------------- */
+
+SUB_THROW: {
+  // Find the closest catch block
+  reg2 = reg->catchTarget;
+
+  // If none, it's an uncaught exception
+  if (reg2 == VM_VALUE_UNDEFINED) {
+    CODE_COVERAGE(208); // Hit
+
+    if (out_result) {
+      *out_result = reg1;
+    }
+    err = MVM_E_UNCAUGHT_EXCEPTION;
+    goto SUB_EXIT;
+  } else {
+    CODE_COVERAGE(209); // Hit
+  }
+
+  VM_ASSERT(vm, ((intptr_t)reg2 & 1) == 1);
+
+  // Unwind the stack. regP1 is the stack pointer address we want to land up at
+  regP1 = (uint16_t*)(((intptr_t)getBottomOfStack(vm->stack) + (intptr_t)reg2) & ~1);
+  VM_ASSERT(vm, pStackPointer >= getBottomOfStack(vm->stack));
+  VM_ASSERT(vm, pStackPointer < getTopOfStackSpace(vm->stack));
+
+  while (pFrameBase > regP1) {
+    CODE_COVERAGE(211); // Hit
+
+    // Near the beginning of mvm_call, we set `catchTarget` to undefined
+    // (and then restore at the end), which should direct exceptions through
+    // the path of "uncaught exception" above, so no frame here should ever
+    // be a host frame.
+    VM_ASSERT(vm, !(reg->argCountAndFlags & AF_CALLED_FROM_HOST));
+
+    // In the current frame structure, the size of the preceding frame is
+    // saved 4 words ahead of the frame base
+    pStackPointer = pFrameBase;
+    POP_REGISTERS();
+  }
+
+  pStackPointer = regP1;
+
+  // The next catch target is the outer one
+  reg->catchTarget = pStackPointer[0];
+
+  // Jump to the catch block
+  reg2 = pStackPointer[1];
+  VM_ASSERT(vm, (reg2 & 1) == 1);
+  lpProgramCounter = LongPtr_add(vm->lpBytecode, reg2 & ~1);
+
+  // Push the exception to the stack for the catch block to use
+  goto SUB_TAIL_POP_0_PUSH_REG1;
+}
+
+/* ------------------------------------------------------------------------- */
 /*                             SUB_FIXED_ARRAY_NEW                           */
 /*   Expects:                                                                */
 /*     reg1: length of fixed-array to create                                 */
@@ -3891,8 +3900,6 @@ SUB_CALL_HOST_COMMON: {
   // Call the host function
   err = hostFunction(vm, hostFunctionID, pResult, regP1, (uint8_t)reg3);
 
-  if (err != MVM_E_SUCCESS) goto SUB_EXIT;
-
   // The host function should not have left the stack unbalanced. A failure here
   // is not really a problem with the host since the Microvium C API doesn't
   // give the host access to the stack anyway.
@@ -3929,6 +3936,22 @@ SUB_CALL_HOST_COMMON: {
     */
     VM_ASSERT(vm, memcmp(&regCopy, reg, sizeof regCopy) == 0);
   #endif
+
+  // Represents an exception thrown by the host function that wasn't caught by
+  // the host. The pResult should reference the exception object.
+  if (err == MVM_E_UNCAUGHT_EXCEPTION) {
+    CODE_COVERAGE_UNTESTED(664); // Not hit
+    reg1 = *pResult;
+    err = MVM_E_SUCCESS;
+    // The throw will unwind the stack to the closest catch block, so we don't
+    // need to worry about unwinding the arguments off the stack.
+    goto SUB_THROW;
+  } else if (err != MVM_E_SUCCESS) {
+    CODE_COVERAGE_ERROR_PATH(665); // Not hit
+    goto SUB_EXIT;
+  } else {
+    CODE_COVERAGE(666); // Hit
+  }
 
   reg3 = reg1; // Callee argCountAndFlags
   reg1 = *pResult;

@@ -1,6 +1,5 @@
 # To Do
 
-- Exceptions and error codes, including with reentrancy
 - Gas counter (mvm_stopAfterNInstructions and mvm_getInstructionCountRemaining)
 - Reflect.keys and property enumeration (arrays and objects)
 - The Microvium library doesn't seem to work with linux for me.
@@ -26,3 +25,4 @@
   - Arrays
   - Uint8Array
   - Classes
+- Exceptions and error codes, including with reentrancy
