@@ -10,6 +10,7 @@
 - Unskip the performance tests
 - Remember to change `build.sh` back to release mode (change the build command to use the commented-out release-mode build).
 - Run the performance tests with `MVM_SAFE_MODE = 0`
+- Update the readme where it says "the bundled size of the library is about" to the actual size.
 
 # Nice to have
 

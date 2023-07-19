@@ -186,9 +186,9 @@ test('memoryStats', async function () {
     assert.equal(typeof stats1[field], 'number');
   }
   assert.equal(stats1.stackHeight, 0);
-  assert.equal(stats1.totalSize, 82);
+  assert.equal(stats1.totalSize, 86);
   vm.exports[1]();
-  assert.equal(stats2.totalSize, 15576);
+  assert.equal(stats2.totalSize, 15580);
   assert.equal(stats2.stackHeight, 18);
 })
 
@@ -810,7 +810,27 @@ test('Error handling', async function () {
 
   // Exception thrown by host and not caught by VM
   assert.throws(() => callHostNoCatch(), e => (e as any).message === 'host error');
+});
 
+test('gas-counter', async function () {
+  const source = `
+    const infiniteLoop = () => { while (true) {} };
+    const shortLoop = () => { for (let i = 0; i < 10; i++) {} };
+
+    vmExport(0, infiniteLoop);
+    vmExport(1, shortLoop);
+  `;
+
+  const snapshot = compile(source, this.test!.title!);
+  const vm = await Runtime.restore(snapshot, { });
+  const { [0]: infiniteLoop, [1]: shortLoop } = vm.exports;
+
+  vm.stopAfterNInstructions(200);
+  assert.equal(vm.getInstructionCountRemaining(), 200);
+  shortLoop();
+  assert.equal(vm.getInstructionCountRemaining(), 60);
+  assert.throws(() => infiniteLoop(), { message: 'Microvium Error: MVM_E_INSTRUCTION_COUNT_REACHED (51)' });
+  assert.equal(vm.getInstructionCountRemaining(), 0);
 });
 
 function loadOnNode(source) {

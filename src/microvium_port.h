@@ -53,3 +53,5 @@ extern void mvm_fatalError(int e);
 #define MVM_SNPRINTF mvm_snprintf
 
 #define MVM_SAFE_MODE 1
+
+#define MVM_GAS_COUNTER 1

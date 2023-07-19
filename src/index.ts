@@ -350,7 +350,8 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     newHandle,
     getProperty,
     setProperty,
-    newInst,
+    mvm_stopAfterNInstructions,
+    mvm_getInstructionCountRemaining,
   } = exports;
   const engineVersion = `${readByte(engineMajorVersion.value)}.${readByte(engineMinorVersion.value)}.0`;
 
@@ -446,6 +447,24 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
         addr += 4;
       }
       return stats;
+    },
+
+    /**
+     * If using the gas counter, this will return the number of instructions
+     * remaining. If not using the gas counter, this will return -1.
+     */
+    getInstructionCountRemaining() {
+      return mvm_getInstructionCountRemaining(vm)
+    },
+
+    /**
+     * Set the gas counter -- the number of instructions to execute before
+     * erroring out with a MVM_E_INSTRUCTION_COUNT_REACHED error. If this is set
+     * to -1, then the gas counter is disabled.
+     */
+    stopAfterNInstructions(n: number) {
+      if (typeof n !== 'number') throw new Error(`Expected number, got ${n}`);
+      mvm_stopAfterNInstructions(vm, n);
     },
 
     createSnapshot() {
@@ -630,8 +649,9 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
             proxy[index] = value;
           }
           if (hostValue instanceof Error) {
-            // Hack because `message` is a non-enumerable property on Error
+            // Hack because these are a non-enumerable property on Error
             proxy['message'] = hostValue.message;
+            proxy['stack'] = hostValue.stack;
           }
           return vmValue;
         }
