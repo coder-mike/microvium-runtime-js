@@ -47,13 +47,20 @@ const VM_VALUE_UNDEFINED = 1;
 const VM_VALUE_NULL = 5;
 const VM_VALUE_ZERO = 3;
 const MAX_INDEX = 0x3FFF;
-const microviumWasmRaw = globalThis.atob(microviumWasmBase64);
-const rawLength = microviumWasmRaw.length;
-const microviumWasmBytes = new Uint8Array(new ArrayBuffer(rawLength));
-for (let i = 0; i < rawLength; i++) {
-  microviumWasmBytes[i] = microviumWasmRaw.charCodeAt(i);
+
+let cachedModule: Promise<WebAssembly.Module> | undefined;
+let getModule = (): PromiseLike<WebAssembly.Module> => {
+  if (cachedModule) return cachedModule;
+  const microviumWasmRaw = globalThis.atob(microviumWasmBase64);
+  const rawLength = microviumWasmRaw.length;
+  const microviumWasmBytes = new Uint8Array(new ArrayBuffer(rawLength));
+  for (let i = 0; i < rawLength; i++) {
+    microviumWasmBytes[i] = microviumWasmRaw.charCodeAt(i);
+  }
+
+  cachedModule = WebAssembly.compile(microviumWasmBytes.buffer);
+  return cachedModule;
 }
-let modulePromise: PromiseLike<WebAssembly.Module> = WebAssembly.compile(microviumWasmBytes.buffer);
 
 const noOpFunc = Object.freeze(() => {});
 
@@ -78,7 +85,7 @@ export interface RestoreOptions {
 }
 
 export function useWasmModule(module: PromiseLike<WebAssembly.Module>) {
-  modulePromise = module;
+  getModule = () => module;
 }
 
 export async function restore(snapshot: ArrayLike<number>, imports: Imports, opts?: RestoreOptions) {
@@ -352,7 +359,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
 		}
 	};
 
-  const module = await modulePromise;
+  const module = await getModule();
   const instance = await WebAssembly.instantiate(module, wasmImports);
 
   const exports = instance.exports as any;
