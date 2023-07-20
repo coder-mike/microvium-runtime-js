@@ -446,7 +446,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
   const { indexByImport, importByIndex } = indexImports();
 
   // This is horribly hacky but should be pretty efficient
-  assumeVersion('7.7.0');
+  assumeVersion('7.8.0');
   const romGlobalVariablesStart = romStart + readWord(romStart + 24); // BCS_GLOBALS
   const romGlobalVariablesEnd = romStart + readWord(romStart + 26);
 
@@ -771,7 +771,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     // the RAM is limited to 64k, this will only be a 16-bit pointer.
     // Assuming here that the WASM is little-endian, so we only need to read
     // the lower word.
-    assumeVersion('7.7.0');
+    assumeVersion('7.8.0');
     const ramGlobalVariablesStart = readWord(vm);
 
     // Remap from ROM space to RAM space to get the runtime value
@@ -894,7 +894,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     // membrane.
 
     // This is horribly hacky but should be pretty efficient
-    assumeVersion('7.7.0');
+    assumeVersion('7.8.0');
     const stringTableStart = romStart + readWord(romStart + 20); // BCS_STRING_TABLE
     const stringTableEnd = romStart + readWord(romStart + 22);
 
@@ -919,7 +919,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     const importByIndex = new Map<number, AnyFunction>();
 
     // This is horribly hacky but should be pretty efficient
-    assumeVersion('7.7.0');
+    assumeVersion('7.8.0');
     const importTableStart = romStart + readWord(romStart + 12);
     const importTableEnd = romStart + readWord(romStart + 14);
 

@@ -3,7 +3,7 @@
 /*
  * Microvium Bytecode Interpreter
  *
- * Version: 0.0.25
+ * Version: 7.8.0
  *
  * This file contains the Microvium virtual machine C implementation.
  *
@@ -34,6 +34,7 @@
 
 #include <ctype.h>
 #include <stdlib.h>
+#include <inttypes.h>
 #include <stdio.h> // Note: only uses snprintf from stdio.h
 
 // See microvium.c for design notes.
@@ -718,6 +719,29 @@ typedef enum vm_TeSmallLiteralValue {
 #define MVM_HIDDEN static
 #endif
 
+// This function might be unused if the user has overridden the
+// MVM_CHECK_CRC16_CCITT macro.
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#endif
+static uint16_t default_crc16(MVM_LONG_PTR_TYPE lp, uint16_t size) {
+  uint16_t r = 0xFFFF;
+  while (size--)
+  {
+    r  = (uint8_t)(r >> 8) | (r << 8);
+    r ^= MVM_READ_LONG_PTR_1(lp);
+    lp = MVM_LONG_PTR_ADD(lp, 1);
+    r ^= (uint8_t)(r & 0xff) >> 4;
+    r ^= (r << 8) << 4;
+    r ^= ((r & 0xff) << 4) << 1;
+  }
+  return r;
+}
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
+
 // ---------------------------------------------------------------------------
 
 typedef mvm_VM VM;
@@ -747,7 +771,6 @@ typedef mvm_TeError TeError;
 #define MVM_FLOAT_NEG_ZERO (-0.0)
 #endif
 
-// Note: the only format specifiers that Microvium uses are "%.15g" and "%ld"
 #ifndef MVM_SNPRINTF
 #define MVM_SNPRINTF snprintf
 #endif
@@ -4898,7 +4921,7 @@ static void gc_createNextBucket(VM* vm, uint16_t bucketSize, uint16_t minBucketS
 
   // If this tips us over the top of the heap, then we run a collection
   if (heapSize + bucketSize > MVM_MAX_HEAP_SIZE) {
-    CODE_COVERAGE(197); // Hit
+    CODE_COVERAGE_UNTESTED(197); // Not hit
     mvm_runGC(vm, false);
     heapSize = getHeapSize(vm);
   }
@@ -5957,7 +5980,7 @@ static Value vm_intToStr(VM* vm, int32_t i) {
   char buf[32];
   size_t size;
 
-  size = MVM_SNPRINTF(buf, sizeof buf, "%ld", (long int)i);
+  size = MVM_SNPRINTF(buf, sizeof buf, "%" PRId32, i);
   VM_ASSERT(vm, size < sizeof buf);
 
   return mvm_newString(vm, buf, size);
@@ -8239,6 +8262,12 @@ static void* vm_malloc(VM* vm, size_t size) {
   return result;
 }
 
+// This is because we get an unused warning on the `context` variable if the
+// MVM_CONTEXTUAL_FREE macro doesn't actually use the context.
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-variable"
+#endif
 // Note: mvm_free frees the VM, while vm_free is the counterpart to vm_malloc
 static void vm_free(VM* vm, void* ptr) {
   // Capture the context before freeing the ptr, since the pointer could be the vm
@@ -8251,6 +8280,9 @@ static void vm_free(VM* vm, void* ptr) {
 
   MVM_CONTEXTUAL_FREE(ptr, context);
 }
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
 
 static mvm_TeError vm_uint8ArrayNew(VM* vm, Value* slot) {
   CODE_COVERAGE(344); // Hit

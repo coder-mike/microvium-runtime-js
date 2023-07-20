@@ -13,7 +13,16 @@ Make sure:
 - Unskip the performance tests.
 - Update the readme where it says "the bundled size of the library is about" to the actual size (the size of `dist/index.js`). If this looks bigger than expected, make sure you remembered to enable terser and rebuild the WASM with optimizations.
 
+Optional patch version bump in package.json. The major and minor version should be tied to the Microvium version, and are updated automatically with the` npm run update-microvium` command.
 
+```sh
+npm run update-microvium   # (wsl)
+npm run build              # (wsl)
+npm test                   # (git-bash)
+npm publish                # (git-bash)
+```
+
+Note: you may need to check that you're signed in to the right npm account.
 
 ## Environment Setup
 

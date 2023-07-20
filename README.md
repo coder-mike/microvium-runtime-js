@@ -2,8 +2,6 @@
 
 *Run Microvium snapshots on a JavaScript host using the Microvium C runtime compiled to WASM*
 
-************ UNDER DEVELOPMENT. NOT READY FOR USE. **********
-
 JavaScript library for executing [Microvium](https://github.com/coder-mike/microvium) snapshots. It does not include the Microvium compiler to produce those snapshots (see [Microvium](https://github.com/coder-mike/microvium)).
 
 Implemented as a lightweight JavaScript wrapper around a WebAssembly build of `microvium.c`, to run in the browser or in Node.js.

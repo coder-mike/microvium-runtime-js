@@ -1,14 +1,7 @@
 # To Do
 
-Features/Bugs:
-
-- npm ignore/include
-- Fix Microvium native run in the performance tests.
-- There are warnings when I do the WSL prebuildify in Microvium
-
-- Remove the "under development" warning from the README.
-- Update Microvium version number and update all the version numbers in index.ts
 - Release Microvium.
+- Update Microvium version number and update all the version numbers in index.ts
 
 # Nice to have
 

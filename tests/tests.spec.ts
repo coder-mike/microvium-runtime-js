@@ -886,7 +886,7 @@ async function measurePerformance(source: string, testName: string) {
   const startNode = process.hrtime.bigint();
   onNode.exports[1]();
   const endNode = process.hrtime.bigint();
-  console.log(`      Node: ${((Number(endNode) - Number(startNode))/1000_000).toFixed(1)} ms`)
+  console.log(`      Node: ${((Number(endNode) - Number(startNode))/1000_000).toFixed(1)} ms`);
 
   // Microvium on wasm
   const snapshot = compile(source, testName);
@@ -894,12 +894,14 @@ async function measurePerformance(source: string, testName: string) {
   const startWasmVm = process.hrtime.bigint();
   wasmVm.exports[1]();
   const endWasmVm = process.hrtime.bigint();
-  console.log(`      Microvium on WASM: ${((Number(endWasmVm) - Number(startWasmVm))/1000_000).toFixed(1)} ms`)
+  const wasmTotalMs = ((Number(endWasmVm) - Number(startWasmVm))/1000_000);
+  console.log(`      Microvium on WASM: ${wasmTotalMs.toFixed(1)} ms`)
 
   // Microvium native
   const nativeVm = Microvium.restore({ data: snapshot }, {});
   const startNativeVm = process.hrtime.bigint();
   nativeVm.resolveExport(1)();
   const endNativeVm = process.hrtime.bigint();
-  console.log(`      Microvium native: ${((Number(endNativeVm) - Number(startNativeVm))/1000_000).toFixed(1)} ms`)
+  const nativeTotalMs = ((Number(endNativeVm) - Number(startNativeVm))/1000_000);
+  console.log(`      Microvium native: ${nativeTotalMs.toFixed(1)} ms (${(nativeTotalMs / wasmTotalMs).toFixed(1)}x WASM)`);
 }

@@ -1,6 +1,9 @@
 {
   "name": "@microvium/runtime",
-  "version": "7.7.0",
+  "version": "7.8.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "Run Microvium snapshots on a JavaScript host using the Microvium C runtime compiled to WASM",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
