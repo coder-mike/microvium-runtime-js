@@ -1,16 +1,14 @@
 # To Do
 
-- Gas counter (mvm_stopAfterNInstructions and mvm_getInstructionCountRemaining)
-- Reflect.keys and property enumeration (arrays and objects)
-- The Microvium library doesn't seem to work with linux for me.
-- Go over all the remaining TODOs and `notImplemented` in the code
+Features/Bugs:
 
-- Get rid of the relative import of microvium in tests (before first release)
-- Make sure Terser is still enabled
-- Unskip the performance tests
-- Remember to change `build.sh` back to release mode (change the build command to use the commented-out release-mode build).
-- Run the performance tests with `MVM_SAFE_MODE = 0`
-- Update the readme where it says "the bundled size of the library is about" to the actual size.
+- npm ignore/include
+- Fix Microvium native run in the performance tests.
+- There are warnings when I do the WSL prebuildify in Microvium
+
+- Remove the "under development" warning from the README.
+- Update Microvium version number and update all the version numbers in index.ts
+- Release Microvium.
 
 # Nice to have
 
@@ -27,3 +25,5 @@
   - Uint8Array
   - Classes
 - Exceptions and error codes, including with reentrancy
+- Gas counter (mvm_stopAfterNInstructions and mvm_getInstructionCountRemaining)
+- Reflect.keys and property enumeration (arrays and objects)

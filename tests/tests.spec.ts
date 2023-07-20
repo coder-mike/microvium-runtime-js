@@ -1,10 +1,10 @@
 import Runtime from '../src/index';
 import assert from 'assert/strict';
-// TODO: this relative import is temporary while I'm developing so I have the
-// latest working copy of Microvium. Before the first release, I intend to
-// change this back to just `microvium`
-import { Microvium, addDefaultGlobals } from '../../microvium/dist/lib';
 import fs from 'fs';
+// Note: This library is developed in a sibling directory to Microvium, so that
+// the two can change in lock-step. If you haven't already, you'll need to clone
+// Microvium in a sibling directory and build it.
+import { Microvium, addDefaultGlobals } from '../../microvium/dist/lib';
 import { MemoryStats, memoryStatsFields } from '../src/memory-stats-fields';
 
 const basicValues: any[] = [
@@ -108,7 +108,7 @@ test('fmod and pow', async function () {
   assert.equal(pow(-10.5, -1.5), (-10.5) ** -1.5);
 });
 
-test.skip('performance 1', async function () {
+test('performance 1', async function () {
   this.timeout(20000);
 
   const objCount = 1000;
@@ -131,7 +131,7 @@ test.skip('performance 1', async function () {
   await measurePerformance(source, this.test!.title!);
 })
 
-test.skip('performance 2', async function () {
+test('performance 2', async function () {
   this.timeout(20000);
 
   // This is similar to the previous performance test except using closures
@@ -831,6 +831,30 @@ test('gas-counter', async function () {
   assert.equal(vm.getInstructionCountRemaining(), 60);
   assert.throws(() => infiniteLoop(), { message: 'Microvium Error: MVM_E_INSTRUCTION_COUNT_REACHED (51)' });
   assert.equal(vm.getInstructionCountRemaining(), 0);
+});
+
+test('reflect-ownkeys', async function () {
+  const source = `
+    const x = { a: 1, b: 2 };
+    const getX = () => x;
+    vmExport(0, getX);
+    vmExport(1, x);
+  `;
+
+  const snapshot = compile(source, this.test!.title!);
+  const vm = await Runtime.restore(snapshot, { });
+  const { [0]: getX, [1]: x2 } = vm.exports as any;
+
+  const x = getX();
+  assert.deepEqual(Reflect.ownKeys(x), ['a', 'b']);
+
+  // With the addition of Reflect.keys support, the following now works:
+  assert.deepEqual(x, { a: 1, b: 2 });
+  assert.deepEqual({ ...x }, { a: 1, b: 2 });
+  assert.deepEqual(JSON.stringify(x), '{"a":1,"b":2}');
+
+  // And actually it looks like we can export the object directly and it just works.
+  assert.deepEqual(x2, { a: 1, b: 2 });
 });
 
 function loadOnNode(source) {

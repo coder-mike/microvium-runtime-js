@@ -4,6 +4,16 @@ Note: although I'm on Windows, I'm using WSL (Ubuntu) to build because the insta
 
 The WASM build of Microvium uses **Clang** directly, not Emscripten, since Emscripten apparently adds a bunch of extra stuff, and I wanted to keep the build output small (that's what Microvium's all about!). But also, Microvium is much more efficient if it can be compiled to execute in a single, pre-defined page of RAM, and I felt that this would be easier to control with Clang than with Emscripten. It was still more difficult than I thought - [see below](#memory-layout).
 
+## Release Process
+
+Make sure:
+
+- Make sure terser is enabled in the rollup config.
+- Change `build.sh` back to release mode (change the build command to use the commented-out release-mode build).
+- Unskip the performance tests.
+- Update the readme where it says "the bundled size of the library is about" to the actual size (the size of `dist/index.js`). If this looks bigger than expected, make sure you remembered to enable terser and rebuild the WASM with optimizations.
+
+
 
 ## Environment Setup
 

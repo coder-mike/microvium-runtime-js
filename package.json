@@ -1,7 +1,7 @@
 {
-  "name": "microvium-runtime",
+  "name": "@microvium/runtime",
   "version": "7.7.0",
-  "description": "Run Microvium snapshots on a JavaScript host",
+  "description": "Run Microvium snapshots on a JavaScript host using the Microvium C runtime compiled to WASM",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "scripts": {
@@ -23,6 +23,12 @@
   "bugs": {
     "url": "https://github.com/coder-mike/microvium-runtime-js/issues"
   },
+  "files": [
+    "dist/microvium.wasm",
+    "dist/index.js",
+    "dist/index.mjs",
+    "dist/**/*.d.ts"
+  ],
   "homepage": "https://github.com/coder-mike/microvium-runtime-js#readme",
   "devDependencies": {
     "@rollup/plugin-terser": "^0.4.0",

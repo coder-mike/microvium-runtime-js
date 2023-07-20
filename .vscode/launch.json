@@ -15,7 +15,7 @@
           "--timeout",
           "999999",
           "--colors",
-          "--grep=\"gas\"",
+          "--grep=\"reflect\"",
           "${workspaceFolder}/tests"
       ],
       // "runtimeArgs": ["--trace-warnings"],

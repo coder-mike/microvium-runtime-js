@@ -8,8 +8,6 @@ import { MemoryStats, memoryStatsFields } from './memory-stats-fields';
 import { microviumWasmBase64 } from './microvium-wasm-base64';
 import { mvm_TeError } from './microvium/runtime-types'
 
-console.log('Version 5'); // TODO: remove this
-
 export type AnyFunction = (...args: any[]) => any;
 export type Exports = Record<number, AnyFunction>;
 export type Imports = Record<number, AnyFunction>;
@@ -59,9 +57,10 @@ let modulePromise: PromiseLike<WebAssembly.Module> = WebAssembly.compile(microvi
 
 const noOpFunc = Object.freeze(() => {});
 
-const notImplemented = () => { throw new Error('Not implemented') }
+const notImplemented = (): never => { throw new Error('Not implemented') }
+const notSupported = (msg: string): never => { throw new Error('Not implemented: ' + msg) }
 const assert = x => { if (!x) throw new Error('Assertion failed') }
-const unexpected = () => { throw new Error('Unexpected value or control path') }
+const unexpected = (): never => { throw new Error('Unexpected value or control path') }
 const assertUnreachable = (value: never) => { throw new Error('Unexpected value or control path') }
 
 const TextEncoder_ = typeof require !== 'undefined'
@@ -158,6 +157,24 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       }
     }
 
+    ownKeys(target: any): ArrayLike<string | symbol> {
+      const hInOut = new Handle(this.handle.value)
+      check(vm_objectKeys(vm, hInOut.address));
+      const keysProxy = valueToHost(hInOut.value);
+      const arr = [...keysProxy];
+      return arr;
+    }
+
+    getOwnPropertyDescriptor(target: any, p: string | symbol): PropertyDescriptor | undefined {
+      // All properties are treated as mutable POD properties
+      return {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: this.get(target, p)
+      }
+    }
+
     makeCall(thisArg: any, hostArgs: any[]): any {
       // We only have space for 64 arguments in argsTemp
       const maxArgs = 64;
@@ -222,7 +239,17 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       return this.makeCall(undefined, hostArgs);
     }
 
-    get(target: any, p: number | string | symbol, receiver: any): any {
+    get(target: any, p: number | string | symbol): any {
+      if (p === Symbol.iterator) {
+        let arr = new Proxy(target, this);
+        return function*() {
+          let index = 0;
+          while (index < arr.length) {
+            yield arr[index++];
+          }
+        }
+      }
+
       // Symbols not supported
       if (typeof p !== 'string') return undefined;
 
@@ -352,8 +379,14 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     setProperty,
     mvm_stopAfterNInstructions,
     mvm_getInstructionCountRemaining,
+    vm_objectKeys,
   } = exports;
   const engineVersion = `${readByte(engineMajorVersion.value)}.${readByte(engineMinorVersion.value)}.0`;
+  const assumeVersion = (assumedVersion: string) => {
+    if (engineVersion !== assumedVersion) {
+      throw new Error(`The following code was written against engine version ${assumedVersion}. If this has changed, please check the logic still applies and then update the \`assumedVersion\` variable above.`);
+    }
+  }
 
   const gp2 = generalPurpose2.value;
   const gp3 = generalPurpose3.value;
@@ -405,9 +438,13 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
   // Table of function indexes imported by the VM
   const { indexByImport, importByIndex } = indexImports();
 
+  // This is horribly hacky but should be pretty efficient
+  assumeVersion('7.7.0');
+  const romGlobalVariablesStart = romStart + readWord(romStart + 24); // BCS_GLOBALS
+  const romGlobalVariablesEnd = romStart + readWord(romStart + 26);
+
   cacheInternedStrings();
   cacheWellKnownValues();
-  // cacheImports(); // TODO ? maybe. Or cached on-demand
 
   return {
     engineVersion,
@@ -668,9 +705,8 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
         // Microvium doesn't have a way to represent a general host function
         throw new Error('Host functions cannot be passed to the VM');
       }
+      default: return notSupported(typeof hostValue);
     }
-    // TODO
-    return notImplemented();
   }
 
   function valueToAddress(vmValue) {
@@ -689,16 +725,58 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       // not get to this point in the code
       assert(vmValue > 0x25);
 
-      // TODO Indirection through handles (maybe not required right now because
-      // the Microvium compiler doesn't do the static analysis to determine that
-      // a value is a constant, I think handles will not be used).
+      const address = romStart + (vmValue & 0xFFFC);
+      if (address >= romGlobalVariablesStart && address < romGlobalVariablesEnd) {
+        // Probably the caller should have called `resolveValue` to resolve the
+        // indirection, but we can do it here for them. The only catch is that
+        // this will throw if the value is not a pointer.
+        const resolved = resolveValue(vmValue);
+        assert(resolved !== vmValue); // The ROM handles can't point to themselves
+        return valueToAddress(resolved);
+      }
 
-      // Plain bytecode pointer
-      return romStart + (vmValue & 0xFFFC);
+      return address;
     }
   }
 
-  function valueToHost(vmValue) {
+  /**
+   * Resolves any indirections through the ROM handle indirection table to give
+   * you the "actual" value. This is idempotent so it's safe to use "just in
+   * case".
+   */
+  function resolveValue(vmValue: mvm_Value): mvm_Value {
+    // Indirections are only done by bytecode-mapped pointers
+    if ((vmValue & 3) !== 1) {
+      return vmValue;
+    }
+
+    let address = romStart + (vmValue & 0xFFFC);
+
+    // Indirections are only done by pointers that point to ROM variables
+    if (address < romGlobalVariablesStart || address >= romGlobalVariablesEnd) {
+      return vmValue;
+    }
+
+    // To get the actual value, we address the equivalent variable in RAM
+    // rather than the variable in ROM.
+
+    // The `globals` pointer is the first in the VM structure. Also, since
+    // the RAM is limited to 64k, this will only be a 16-bit pointer.
+    // Assuming here that the WASM is little-endian, so we only need to read
+    // the lower word.
+    assumeVersion('7.7.0');
+    const ramGlobalVariablesStart = readWord(vm);
+
+    // Remap from ROM space to RAM space to get the runtime value
+    address = address - romGlobalVariablesStart + ramGlobalVariablesStart;
+
+    // Read the value at the address of the variable in RAM
+    return readWord(address);
+  }
+
+  function valueToHost(vmValue: mvm_Value) {
+    vmValue = resolveValue(vmValue);
+
     // Int14
     if ((vmValue & 3) === 3) {
       // Use the 16th bit as the sign bit
@@ -784,7 +862,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
         return makeProxy(vmValue, 'array', valueIsConst);
       }
 
-      default: return notImplemented();
+      default: return unexpected();
     }
   }
 
@@ -808,12 +886,9 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     // that property keys do not need to be physically copied across the
     // membrane.
 
-    const assumedVersion = '7.7.0';
-    if (engineVersion !== assumedVersion) {
-      throw new Error(`The following code was written against engine version ${assumedVersion}. If this has changed, please check the logic still applies and then update the \`assumedVersion\` variable above.`);
-    }
     // This is horribly hacky but should be pretty efficient
-    const stringTableStart = romStart + readWord(romStart + 20);
+    assumeVersion('7.7.0');
+    const stringTableStart = romStart + readWord(romStart + 20); // BCS_STRING_TABLE
     const stringTableEnd = romStart + readWord(romStart + 22);
 
     let cursor = stringTableStart;
@@ -836,11 +911,8 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     const indexByImport = new Map<AnyFunction, number>();
     const importByIndex = new Map<number, AnyFunction>();
 
-    const assumedVersion = '7.7.0';
-    if (engineVersion !== assumedVersion) {
-      throw new Error(`The following code was written against engine version ${assumedVersion}. If this has changed, please check the logic still applies and then update the \`assumedVersion\` variable above.`);
-    }
     // This is horribly hacky but should be pretty efficient
+    assumeVersion('7.7.0');
     const importTableStart = romStart + readWord(romStart + 12);
     const importTableEnd = romStart + readWord(romStart + 14);
 

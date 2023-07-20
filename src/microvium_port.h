@@ -52,6 +52,10 @@ extern void mvm_fatalError(int e);
 
 #define MVM_SNPRINTF mvm_snprintf
 
+// Note: the difference in performance when safe mode is enabled is less than
+// 2x, so it's not really worth disabling it at the moment considering the
+// safety benefits. Maybe when things are substantially more stable and
+// well-tested.
 #define MVM_SAFE_MODE 1
 
 #define MVM_GAS_COUNTER 1
