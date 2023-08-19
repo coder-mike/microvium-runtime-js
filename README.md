@@ -22,7 +22,7 @@ Implemented as a lightweight JavaScript wrapper around a WebAssembly build of `m
 npm install @microvium/runtime
 ```
 
-## Usage
+## Example Usage
 
 ```js
 import Microvium from '@microvium/runtime';
@@ -50,6 +50,63 @@ const sayHello = vm.exports[1234];
 // Call functions in the vm
 sayHello('Hello');
 ```
+
+## API
+
+### Restore a snapshot
+
+```js
+const vm = Microvium.restore(snapshot, imports, opts);
+```
+
+Restore a given snapshot to a running VM. Does not execute any code in the VM.
+
+Returns the VM instance.
+
+The snapshot can be either a `Uint8Array` or a plain array of bytes.
+
+The imports object is a map of numeric function IDs to host functions. The function IDs must be in the range 0 to 0xFFFF. The host functions are called with the arguments passed by the Microvium script, and the return value is passed back to the Microvium script.
+
+The `opts` object is optional and can contain the following properties:
+
+- `opts.breakpointHit`: See [Debug interface](#debug-interface) below.
+
+The returned `vm` has an `exports` property which has a similar structure to the `imports` except contains the functions exported by the Microvium script.
+
+### Snapshotting
+
+```
+vm.createSnapshot()
+```
+
+Returns a `Uint8Array` that is suitable to pass back to `Microvium.restore` or run on an embedded device.
+
+
+### Gas Counter
+
+- `vm.stopAfterNInstructions(number)` stop the VM after `number` instructions have been executed. Each time this is called will reset the counter to the given value. Pass `-1` to disable the gas counter.
+
+- `vm.getRemainingInstructions()` returns the number of instructions remaining before the VM will stop. Returns `-1` if the gas counter is disabled.
+
+
+### Other properties and functions
+
+- `engineVersion`: The version of the Microvium engine.
+- `requiredEngineVersion`: The version of the Microvium engine that the snapshot was compiled for.
+- `exports`: The exports of the Microvium script (see [Restore a snapshot](#restore-a-snapshot) above).
+- `runGC()`: Run the garbage collector.
+- `getMemoryStats()`: Get the memory usage statistics.
+
+
+### Breakpoints
+
+Pass a breakpoint callback handler to the `opts` provided to `Microvium.restore` to enable debugging. The breakpoint handler is called when a breakpoint is hit. The breakpoint handler is called with the address of the breakpoint that was hit.
+
+The currently running bytecode address can also be inspected with `vm.currentAddress`.
+
+Set a breakpoint with `vm.setBreakpoint(address)` or remove it with `vm.removeBreakpoint(address)`.
+
+The addresses correspond to the Microvium bytecode addresses that you see if you compile a script with the option `--output-disassembly`. There is no way at present to map these addresses back to the original source code (but feel free to make a PR if want to implement this for me -- it would be really useful).
 
 
 ## Passing values to and from the VM
@@ -85,4 +142,4 @@ Page 0 is used for the Microvium heap because Microvium pointer values are inter
 
 Please help me develop/maintain this!
 
-See also [./src/developer-notes.md](src/developer-notes.md) and [./todo](todo).
+See also [./src/developer-notes.md](src/developer-notes.md).

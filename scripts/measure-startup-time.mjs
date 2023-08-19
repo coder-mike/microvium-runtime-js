@@ -12,23 +12,40 @@ const imported = performance.now();
 
 const moduleBytes = await fs.promises.readFile('dist/microvium.wasm');
 const module = await WebAssembly.compile(moduleBytes);
+useWasmModule(module);
+
 const wasmCompiled = performance.now();
 
-useWasmModule(module);
-const vm = await restore(snapshot, { [1]: msg => console.log(msg) })
-const restored = performance.now();
+let restoreTime = 0;
+let runTime = 0;
+let snapshotTime = 0;
+const repeatCount = 1000;
+for (let i = 0; i < repeatCount; i++) {
+  const start = performance.now();
+  const vm = await restore(snapshot, { [1]: msg => console.log(msg) })
+  restoreTime += performance.now() - start;
 
-const { [1]: main } = vm.exports;
-main();
-const run = performance.now();
+  const runStart = performance.now();
+  const { [1]: main } = vm.exports;
+  main();
+  runTime += performance.now() - runStart;
+
+  const snapshotStart = performance.now();
+  vm.createSnapshot();
+  snapshotTime += performance.now() - snapshotStart;
+}
 
 console.log(`import: ${imported - start}ms`)
 console.log(`wasm compile: ${wasmCompiled - imported}ms`)
-console.log(`restore: ${restored - wasmCompiled}ms`)
-console.log(`run: ${run - restored}ms`)
+console.log(`restore: ${restoreTime/repeatCount}ms`)
+console.log(`run: ${runTime/repeatCount}ms`)
+console.log(`snapshot: ${snapshotTime/repeatCount}ms`)
+
+// Note: I've measured a "run" time of about 1.5 ms. I think the longer time here is related to caching.
 /*
-import: 4.228799998760223ms
-wasm compile: 4.053999960422516ms
-restore: 1.8558000326156616ms
-run: 7.336999952793121ms
+import: 4.085099995136261ms
+wasm compile: 3.413699984550476ms
+restore: 0.42025499963760377ms
+run: 0.4807183993458748ms
+snapshot: 0.014294700026512145ms
 */
