@@ -2,30 +2,30 @@
 set -e
 
 # Debug mode
-# CC="clang \
-# 	--target=wasm32 \
-# 	-nostdlib \
-# 	-O0 \
-# 	-I ./src \
-# 	-I ./src/microvium \
-# 	-I ./src/clib \
-# 	-g3 \
-# 	-fdebug-compilation-dir=. \
-# 	-Werror \
-# 	-nostdlib \
-# 	-mbulk-memory"
-
-# Release mode
 CC="clang \
 	--target=wasm32 \
 	-nostdlib \
-	-O3 \
+	-O0 \
 	-I ./src \
 	-I ./src/microvium \
 	-I ./src/clib \
+	-g3 \
+	-fdebug-compilation-dir=. \
 	-Werror \
 	-nostdlib \
 	-mbulk-memory"
+
+# Release mode
+# CC="clang \
+# 	--target=wasm32 \
+# 	-nostdlib \
+# 	-O3 \
+# 	-I ./src \
+# 	-I ./src/microvium \
+# 	-I ./src/clib \
+# 	-Werror \
+# 	-nostdlib \
+# 	-mbulk-memory"
 
 mkdir -p build
 mkdir -p dist

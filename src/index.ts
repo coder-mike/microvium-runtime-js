@@ -376,7 +376,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     mvm_callEx,
     mvm_newNumber,
     argsTemp,
-    mvm_gc_allocateWithHeader,
+    mvm_allocate,
     vmReleaseHandle,
     initHandles,
     engineMinorVersion,
@@ -391,7 +391,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
   const engineVersion = `${readByte(engineMajorVersion.value)}.${readByte(engineMinorVersion.value)}.0`;
   const assumeVersion = (assumedVersion: string) => {
     if (engineVersion !== assumedVersion) {
-      throw new Error(`The following code was written against engine version ${assumedVersion}. If this has changed, please check the logic still applies and then update the \`assumedVersion\` variable above.`);
+      throw new Error(`The following code was written against engine version ${assumedVersion}. Please check the logic still applies and then update calls to \`assumeVersion()\`.`);
     }
   }
 
@@ -446,7 +446,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
   const { indexByImport, importByIndex } = indexImports();
 
   // This is horribly hacky but should be pretty efficient
-  assumeVersion('7.8.0');
+  assumeVersion('8.0.0');
   const romGlobalVariablesStart = romStart + readWord(romStart + 24); // BCS_GLOBALS
   const romGlobalVariablesEnd = romStart + readWord(romStart + 26);
 
@@ -616,7 +616,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     assert((size & 0xFFF) === size);
     assert((typeCode & 0xF) === typeCode);
 
-    const value = mvm_gc_allocateWithHeader(vm, size, typeCode);
+    const value = mvm_allocate(vm, size, typeCode);
     // Note: the VM returns a Microvium handle because handles are stable across
     // garbage collection cycles. The glue code has 2048 available handles as of
     // this writing.
@@ -767,11 +767,11 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     // To get the actual value, we address the equivalent variable in RAM
     // rather than the variable in ROM.
 
-    // The `globals` pointer is the first in the VM structure. Also, since
+    // The `globals` pointer is the first in the `mvm_VM` structure. Also, since
     // the RAM is limited to 64k, this will only be a 16-bit pointer.
     // Assuming here that the WASM is little-endian, so we only need to read
     // the lower word.
-    assumeVersion('7.8.0');
+    assumeVersion('8.0.0');
     const ramGlobalVariablesStart = readWord(vm);
 
     // Remap from ROM space to RAM space to get the runtime value
@@ -894,7 +894,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     // membrane.
 
     // This is horribly hacky but should be pretty efficient
-    assumeVersion('7.8.0');
+    assumeVersion('8.0.0');
     const stringTableStart = romStart + readWord(romStart + 20); // BCS_STRING_TABLE
     const stringTableEnd = romStart + readWord(romStart + 22);
 
@@ -919,7 +919,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     const importByIndex = new Map<number, AnyFunction>();
 
     // This is horribly hacky but should be pretty efficient
-    assumeVersion('7.8.0');
+    assumeVersion('8.0.0');
     const importTableStart = romStart + readWord(romStart + 12);
     const importTableEnd = romStart + readWord(romStart + 14);
 

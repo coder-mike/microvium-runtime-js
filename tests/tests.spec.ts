@@ -108,7 +108,7 @@ test('fmod and pow', async function () {
   assert.equal(pow(-10.5, -1.5), (-10.5) ** -1.5);
 });
 
-test('performance 1', async function () {
+test.skip('performance 1', async function () {
   this.timeout(20000);
 
   const objCount = 1000;
@@ -131,7 +131,7 @@ test('performance 1', async function () {
   await measurePerformance(source, this.test!.title!);
 })
 
-test('performance 2', async function () {
+test.skip('performance 2', async function () {
   this.timeout(20000);
 
   // This is similar to the previous performance test except using closures
@@ -188,7 +188,7 @@ test('memoryStats', async function () {
   assert.equal(stats1.stackHeight, 0);
   assert.equal(stats1.totalSize, 86);
   vm.exports[1]();
-  assert.equal(stats2.totalSize, 15580);
+  assert.equal(stats2.totalSize, 15588);
   assert.equal(stats2.stackHeight, 18);
 })
 
@@ -223,6 +223,8 @@ test('breakpoint', async function () {
     });
   `;
 
+  const snapshot = compile(source, this.test!.title!);
+
   let printOut = '';
   const print = (s: string) => printOut += s;
 
@@ -232,16 +234,17 @@ test('breakpoint', async function () {
     breakpointWasHit = a;
     printoutAtBreakpoint = printOut;
   }
-
-  const snapshot = compile(source, this.test!.title!);
   const vm = await Runtime.restore(snapshot, { [1]: print }, { breakpointHit });
 
+  if (vm.engineVersion !== '8.0.0') {
+    throw new Error('You\'ve updated the engine version, so you might need to update the following address.')
+  }
   // See build/dbg-breakpoint.disassembly for the addresses. Here I'm
   // breakpointing on the second call to `print`
-  vm.setBreakpoint(0x006f);
+  vm.setBreakpoint(0x0064);
 
   vm.exports[1]();
-  assert.equal(breakpointWasHit, 0x006F);
+  assert.equal(breakpointWasHit, 0x0064);
   assert.equal(printoutAtBreakpoint, 'Hello, ');
   assert.equal(printOut, 'Hello, World!');
 })
@@ -856,6 +859,68 @@ test('reflect-ownkeys', async function () {
   // And actually it looks like we can export the object directly and it just works.
   assert.deepEqual(x2, { a: 1, b: 2 });
 });
+
+test.skip('host-calling-guest-async', async function () {
+  const source = `
+    vmExport(0, () => asyncFunc);
+    vmExport(1, asyncFunc);
+
+    async function asyncFunc() {
+      return 42;
+    }
+  `;
+
+  const snapshot = compile(source, this.test!.title!);
+  const vm = await Runtime.restore(snapshot, { });
+  const { 0: getAsyncFunc, 1: asyncFunc } = vm.exports;
+
+  const asyncFunc2 = getAsyncFunc();
+  const thenable = asyncFunc2();
+  const result = await thenable;
+  assert.equal(result, 42);
+});
+
+// test('async-host-func', async function () {
+//   const source = `
+//     const asyncHostFunc = vmImport(0);
+//     const print = vmImport(1);
+//     vmExport(0, run);
+
+//     function run() {
+//       asyncFunc();
+//     }
+
+//     async function asyncFunc() {
+//       print('before await');
+//       const result = await asyncHostFunc();
+//       print('after await');
+//       print('result: ' + result);
+//     }
+//   `;
+
+//   let resolve: ((value: any) => void) | undefined;
+//   async function asyncHostFunc() {
+//     // Note: Microvium can't await a host promise but the host can await it and
+//     // expose an async function
+//     return await new Promise(resolve_ => resolve = resolve_);
+//   }
+
+//   const printed: string[] = [];
+//   function print(s: string) {
+//     printed.push(s);
+//   }
+
+//   const snapshot = compile(source, this.test!.title!);
+//   const vm = await Runtime.restore(snapshot, { 0: asyncHostFunc, 1: print });
+//   const { 0: run } = vm.exports as any;
+
+//   run();
+//   assert(resolve);
+//   assert.deepEqual(printed, ['before await']);
+
+//   resolve(42);
+
+// });
 
 function loadOnNode(source) {
   const exports: any = {};
