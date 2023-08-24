@@ -4,21 +4,36 @@ Note: although I'm on Windows, I'm using WSL (Ubuntu) to build because the insta
 
 The WASM build of Microvium uses **Clang** directly, not Emscripten, since Emscripten apparently adds a bunch of extra stuff, and I wanted to keep the build output small (that's what Microvium's all about!). But also, Microvium is much more efficient if it can be compiled to execute in a single, pre-defined page of RAM, and I felt that this would be easier to control with Clang than with Emscripten. It was still more difficult than I thought - [see below](#memory-layout).
 
-## Release Process
+## Updating when Microvium changes
 
-Make sure:
+As new features or changes are made to Microvium, we need to keep this library in sync.
+
+Note: if you haven't set up your environment yet, set it up according to [Environment Setup](#environment-setup) below.
+
+1. In WSL: `npm run update-microvium`.
+2. In WSL: `npm run build`.
+3. Find calls to `assumeVersion` and check that their assumptions still hold, and update the version number for each.
+3. In git-bash: `npm test`.
+4. Add tests and make changes to the library.
+5. Follow the release process as described below.
+
+## Release Process
 
 - Make sure terser is enabled in the rollup config.
 - Change `build.sh` back to release mode (change the build command to use the commented-out release-mode build).
 - Unskip the performance tests.
-- Update the readme where it says "the bundled size of the library is about" to the actual size (the size of `dist/index.js`). If this looks bigger than expected, make sure you remembered to enable terser and rebuild the WASM with optimizations.
-
-Optional patch version bump in package.json. The major and minor version should be tied to the Microvium version, and are updated automatically with the` npm run update-microvium` command.
 
 ```sh
 npm run update-microvium   # (wsl)
 npm run build              # (wsl)
 npm test                   # (git-bash)
+```
+
+- Update the readme where it says "the bundled size of the library is about" to the actual size (the size of `dist/index.js`). If this looks bigger than expected, make sure you remembered to enable terser and rebuild the WASM with optimizations.
+
+- Optional patch version bump in package.json. The major and minor version should be tied to the Microvium version, and are updated automatically with the` npm run update-microvium` command.
+
+```sh
 npm publish                # (git-bash)
 ```
 
@@ -40,9 +55,9 @@ Note: I'm using llvm 15, including `wasm-ld-15` which the build script invokes w
 
 ### WABT
 
-Also requires [wabt](https://github.com/WebAssembly/wabt) to be installed and on the path, for `wat2wasm` and `wasm2wat`. (Note: on npm there is a package called `wasm-wat` that also contains these tools, but they maybe aren't the latest because I get a warning when using them that some byte is not understood or something). Follow the steps in the wabt readme for `cloning` and `building`. Don't forget the submodules.
+Also requires [wabt](https://github.com/WebAssembly/wabt) to be installed and on the path, for `wat2wasm` and `wasm2wat`. (Note: on npm there is a package called `wasm-wat` that also contains these tools, but they maybe aren't the latest because I get a warning when using them that some byte is not understood or something).
 
-If you're running in WSL, WABT also needs to be in WSL (and WABT is easier to install in WSL anyway).
+From a `WSL` terminal, follow the steps in the wabt readme for `cloning` and `building using CMake directly`. Don't forget the submodules.
 
 It seems you also need to add the wabt bin directory to the path. For me this meant adding this to my `~/.profile`:
 
@@ -52,6 +67,8 @@ if [ -d "$HOME/wabt/bin" ] ; then
   PATH="$PATH:$HOME/wabt/bin"
 fi
 ```
+
+Edit: I also had some issues that `~/.profile` wasn't being loaded by default, so needed to add `source ~/.profile` to my `~/.bash_profile`. Not sure if this is the right way to do it.
 
 
 ## Building
@@ -119,16 +136,17 @@ The linker is what controls the memory layout, and the WASM linker for Clang is 
 
 ## Debugging
 
-You can debug the mocha tests using the `Mocha` launch profile in VS Code.
+You can debug the mocha tests using the `Mocha` launch profile in VS Code, but you can't yet do WASM debugging in VS Code.
 
 WASM debugging seems to have recently taken a leap forward in Chrome devtools 114 (May 2023), thank goodness.
 
 - In `scripts/build.sh`, comment out the "Release mode" mode build command and uncomment the "Debug mode" build command. This adds relevant symbols and turns off optimization.
+- Comment out `terser()` in `rollup.config.mjs`
 - `npm run build` (in WSL) -- builds both the WASM and the wrapper library
   - Or if only the TypeScript is changing, `ctrl+shift+B` runs the default build task which is a rollup watch run.
-- Modify [tests/debug-test.html](../tests/debug-test.html)
+- Modify [tests/debug-test.html](./tests/debug-test.html)
   - Each unit test has corresponding debug bytes in `./build/dbg-xxx-bytes.js` which is output as the test runs. Copy these into the html file script section.
-- `npx serve .` (in project root)
+- git-bash `npx serve .` (in project root)
 - Open `http://localhost:3000/tests/debug-test.html`
 
 This gives you C source level debugging. `debug-test.html` uses the unmodified WASM output from Clang which includes source maps. It uses `WebAssembly.compileStreaming` which references the actual WASM file instead of the base64 string, which I think helps devtools to find the corresponding C source files.

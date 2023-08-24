@@ -188,7 +188,7 @@ test('memoryStats', async function () {
   assert.equal(stats1.stackHeight, 0);
   assert.equal(stats1.totalSize, 86);
   vm.exports[1]();
-  assert.equal(stats2.totalSize, 15580);
+  assert.equal(stats2.totalSize, 15588);
   assert.equal(stats2.stackHeight, 18);
 })
 
@@ -223,6 +223,8 @@ test('breakpoint', async function () {
     });
   `;
 
+  const snapshot = compile(source, this.test!.title!);
+
   let printOut = '';
   const print = (s: string) => printOut += s;
 
@@ -232,16 +234,17 @@ test('breakpoint', async function () {
     breakpointWasHit = a;
     printoutAtBreakpoint = printOut;
   }
-
-  const snapshot = compile(source, this.test!.title!);
   const vm = await Runtime.restore(snapshot, { [1]: print }, { breakpointHit });
 
+  if (vm.engineVersion !== '8.0.0') {
+    throw new Error('You\'ve updated the engine version, so you might need to update the following address.')
+  }
   // See build/dbg-breakpoint.disassembly for the addresses. Here I'm
   // breakpointing on the second call to `print`
-  vm.setBreakpoint(0x006f);
+  vm.setBreakpoint(0x0064);
 
   vm.exports[1]();
-  assert.equal(breakpointWasHit, 0x006F);
+  assert.equal(breakpointWasHit, 0x0064);
   assert.equal(printoutAtBreakpoint, 'Hello, ');
   assert.equal(printOut, 'Hello, World!');
 })
@@ -829,7 +832,7 @@ test('gas-counter', async function () {
   assert.equal(vm.getInstructionCountRemaining(), 200);
   shortLoop();
   assert.equal(vm.getInstructionCountRemaining(), 60);
-  assert.throws(() => infiniteLoop(), { message: 'Microvium Error: MVM_E_INSTRUCTION_COUNT_REACHED (51)' });
+  assert.throws(() => infiniteLoop(), { message: 'Microvium Error: MVM_E_INSTRUCTION_COUNT_REACHED (51): The instruction count set by `mvm_stopAfterNInstructions` has been reached' });
   assert.equal(vm.getInstructionCountRemaining(), 0);
 });
 
@@ -855,6 +858,54 @@ test('reflect-ownkeys', async function () {
 
   // And actually it looks like we can export the object directly and it just works.
   assert.deepEqual(x2, { a: 1, b: 2 });
+});
+
+test('guest-calling-host-async', async function () {
+  const source = `
+    const asyncHostFunc = vmImport(0);
+    const print = vmImport(1);
+    vmExport(0, run);
+
+    function run() {
+      asyncFunc();
+    }
+
+    async function asyncFunc() {
+      print('before await');
+      const result = await asyncHostFunc();
+      print('after await');
+      print('result: ' + result);
+    }
+  `;
+
+  const snapshot = compile(source, this.test!.title!);
+
+  let resolve: ((value: any) => void) | undefined;
+  async function asyncHostFunc() {
+    // Note: Microvium can't await a host promise but the host can await it and
+    // expose an async function
+    return await new Promise(resolve_ => resolve = resolve_);
+  }
+
+  const printed: string[] = [];
+  function print(s: string) {
+    printed.push(s);
+  }
+
+  const vm = await Runtime.restore(snapshot, { 0: asyncHostFunc, 1: print });
+  const { 0: run } = vm.exports as any;
+
+  run();
+  assert(resolve);
+  assert.deepEqual(printed, ['before await']);
+
+  resolve(42);
+  // The above resolve is asynchronous so we need to wait for it to process.
+  // This takes two ticks because the asyncHostFunc also awaits the result
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(printed, ['before await', 'after await', 'result: 42']);
 });
 
 function loadOnNode(source) {
