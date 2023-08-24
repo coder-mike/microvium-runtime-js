@@ -53,6 +53,11 @@ sayHello('Hello');
 
 ## API
 
+Terminology:
+
+- **Host**: the program **outside** the Microvium VM. E.g. the node.js app or browser app.
+- **Guest**: the program **inside** the Microvium VM.
+
 ### Restore a snapshot
 
 ```js
@@ -119,9 +124,16 @@ Everything passed **into** Microvium is passed **by copy**, since a Microvium VM
 
 Plain objects, arrays, and classes are passed **out** of Microvium **by reference** -- the wrapper library maintains a `Proxy` of the Microvium object, so that the host may mutate the Microvium object by interacting with the proxy. The proxy does not preserve the original prototype of the object.
 
+The passing of an object to the guest by copy means each of the plain-old-data fields are copied individually. That does not include class methods or any other fields from the prototype. For certain kinds of objects such as `Promise`, `Map`, and `Set`, passing from the host to the guest in this manner will very likely not be what was intended, so Microvium will throw an error rather than copying all the own enumerable properties into a new guest object.
+
 `Uint8Array` is passed out of Microvium not as a host `Uint8Array` but as a `MicroviumUint8Array` which has methods `slice` and `set` to read and write to it respectively. The `slice` method returns a **copy** of the requested data range as a host `Uint8Array`.
 
 Functions and closures are be passed **out** of Microvium **by reference**. Host functions cannot be passed into Microvium at all at runtime, but can be imported from the host at build-time using `vmImport` and then satisfied by the `importMap`.
+
+
+## Async-await
+
+As noted above, a host `Promise` cannot be passed from the host to the guest. However, the guest can directly call a host `async` function and the result will be a guest promise which the guest can safely `await`. This allows the host to expose asynchronous APIs to a guest.
 
 
 ## Memory usage

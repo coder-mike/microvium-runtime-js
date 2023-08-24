@@ -12,7 +12,8 @@
         "sourceMap": true,
         "strictNullChecks": true,
         "target": "ES2022",
-        "typeRoots": ["node_modules/@types"]
+        "typeRoots": ["node_modules/@types"],
+        "preserveConstEnums": false
     },
     "include": [
         "src/**/*"

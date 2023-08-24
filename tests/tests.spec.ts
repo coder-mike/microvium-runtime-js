@@ -832,7 +832,7 @@ test('gas-counter', async function () {
   assert.equal(vm.getInstructionCountRemaining(), 200);
   shortLoop();
   assert.equal(vm.getInstructionCountRemaining(), 60);
-  assert.throws(() => infiniteLoop(), { message: 'Microvium Error: MVM_E_INSTRUCTION_COUNT_REACHED (51)' });
+  assert.throws(() => infiniteLoop(), { message: 'Microvium Error: MVM_E_INSTRUCTION_COUNT_REACHED (51): The instruction count set by `mvm_stopAfterNInstructions` has been reached' });
   assert.equal(vm.getInstructionCountRemaining(), 0);
 });
 
@@ -860,67 +860,53 @@ test('reflect-ownkeys', async function () {
   assert.deepEqual(x2, { a: 1, b: 2 });
 });
 
-test.skip('host-calling-guest-async', async function () {
+test('guest-calling-host-async', async function () {
   const source = `
-    vmExport(0, () => asyncFunc);
-    vmExport(1, asyncFunc);
+    const asyncHostFunc = vmImport(0);
+    const print = vmImport(1);
+    vmExport(0, run);
+
+    function run() {
+      asyncFunc();
+    }
 
     async function asyncFunc() {
-      return 42;
+      print('before await');
+      const result = await asyncHostFunc();
+      print('after await');
+      print('result: ' + result);
     }
   `;
 
   const snapshot = compile(source, this.test!.title!);
-  const vm = await Runtime.restore(snapshot, { });
-  const { 0: getAsyncFunc, 1: asyncFunc } = vm.exports;
 
-  const asyncFunc2 = getAsyncFunc();
-  const thenable = asyncFunc2();
-  const result = await thenable;
-  assert.equal(result, 42);
+  let resolve: ((value: any) => void) | undefined;
+  async function asyncHostFunc() {
+    // Note: Microvium can't await a host promise but the host can await it and
+    // expose an async function
+    return await new Promise(resolve_ => resolve = resolve_);
+  }
+
+  const printed: string[] = [];
+  function print(s: string) {
+    printed.push(s);
+  }
+
+  const vm = await Runtime.restore(snapshot, { 0: asyncHostFunc, 1: print });
+  const { 0: run } = vm.exports as any;
+
+  run();
+  assert(resolve);
+  assert.deepEqual(printed, ['before await']);
+
+  resolve(42);
+  // The above resolve is asynchronous so we need to wait for it to process.
+  // This takes two ticks because the asyncHostFunc also awaits the result
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(printed, ['before await', 'after await', 'result: 42']);
 });
-
-// test('async-host-func', async function () {
-//   const source = `
-//     const asyncHostFunc = vmImport(0);
-//     const print = vmImport(1);
-//     vmExport(0, run);
-
-//     function run() {
-//       asyncFunc();
-//     }
-
-//     async function asyncFunc() {
-//       print('before await');
-//       const result = await asyncHostFunc();
-//       print('after await');
-//       print('result: ' + result);
-//     }
-//   `;
-
-//   let resolve: ((value: any) => void) | undefined;
-//   async function asyncHostFunc() {
-//     // Note: Microvium can't await a host promise but the host can await it and
-//     // expose an async function
-//     return await new Promise(resolve_ => resolve = resolve_);
-//   }
-
-//   const printed: string[] = [];
-//   function print(s: string) {
-//     printed.push(s);
-//   }
-
-//   const snapshot = compile(source, this.test!.title!);
-//   const vm = await Runtime.restore(snapshot, { 0: asyncHostFunc, 1: print });
-//   const { 0: run } = vm.exports as any;
-
-//   run();
-//   assert(resolve);
-//   assert.deepEqual(printed, ['before await']);
-
-//   resolve(42);
-
-// });
 
 function loadOnNode(source) {
   const exports: any = {};

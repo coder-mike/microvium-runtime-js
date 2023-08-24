@@ -7,6 +7,7 @@
 import { MemoryStats, memoryStatsFields } from './memory-stats-fields';
 import { microviumWasmBase64 } from './microvium-wasm-base64';
 import { mvm_TeError } from './microvium/runtime-types'
+import { errorMessages } from './microvium/error-messages';
 
 export type AnyFunction = (...args: any[]) => any;
 export type Exports = Record<number, AnyFunction>;
@@ -47,6 +48,18 @@ const VM_VALUE_UNDEFINED = 1;
 const VM_VALUE_NULL = 5;
 const VM_VALUE_ZERO = 3;
 const MAX_INDEX = 0x3FFF;
+
+enum mvm_TeBuiltins {
+  BIN_INTERNED_STRINGS,
+  BIN_ARRAY_PROTO,
+  BIN_STR_PROTOTYPE, // If the string "prototype" is interned, this builtin points to it.
+  BIN_ASYNC_CONTINUE, // A function used to construct a closure for the job queue to complete async operations
+  BIN_ASYNC_CATCH_BLOCK, // A block, bundled as a function, for the root try-catch in async functions
+  BIN_ASYNC_HOST_CALLBACK, // Bytecode to use as the callback for host async operations
+  BIN_PROMISE_PROTOTYPE,
+
+  BIN_BUILTIN_COUNT
+};
 
 let cachedModule: Promise<WebAssembly.Module> | undefined;
 let getModule = (): PromiseLike<WebAssembly.Module> => {
@@ -105,12 +118,12 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
   class Handle {
     refCount = 1;
     address: number;
-    constructor(vmValue: number) {
-      this.address = newHandle(vm, vmValue);
+    constructor(guestValue: number) {
+      this.address = newHandle(vm, guestValue);
       if (!this.address) {
         throw new Error('Microvium: runtime has run out of handles. This could happen if there are too many objects in the VM that are being referenced by live references in the host')
       }
-      assert(this.value === vmValue);
+      assert(this.value === guestValue);
     }
     addRef() { this.refCount++; }
     release() {
@@ -125,14 +138,14 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     get _dbgValue() { return valueToHost(this.value); }
   }
 
-  function makeProxy(vmValue: mvm_Value, kind: ProxyKind, valueIsConst: boolean) {
-    const handle = new Handle(vmValue);
+  function makeProxy(guestValue: mvm_Value, kind: ProxyKind, valueIsConst: boolean) {
+    const handle = new Handle(guestValue);
     const wrappedValue =
       kind === 'object' ? {} :
       kind === 'class' ? function Class () {} :
       kind === 'array' ? [] :
       kind === 'function' ? () => {} :
-      unexpected();
+      assertUnreachable(kind);
 
     const hostValue = new Proxy(wrappedValue, new MicroviumProxyHandler(handle, kind));
     // When the proxy is freed, the handle should also be released.
@@ -142,10 +155,10 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     // by-reference. Since the object can move, we need to cache it by the
     // handle. We don't need to `addRef` on the handle here because its
     // lifetime is already locked to the hostValue which is the cache key.
-    cachedValueToVm1.set(hostValue, handle);
+    cachedValueToGuest1.set(hostValue, handle);
 
     if (valueIsConst) {
-      cachedValueToVm2.set(hostValue, vmValue);
+      cachedValueToGuest2.set(hostValue, guestValue);
     }
 
     return hostValue;
@@ -192,7 +205,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       // value into VM memory, because it's possible for the conversion of
       // any arg to trigger a GC collection that invalidates the value of an
       // earlier arg.
-      const converted = hostArgs.map(valueToVM);
+      const converted = hostArgs.map(valueToGuest);
 
       for (let i = 0; i < converted.length; i++) {
         let vmArg = converted[i];
@@ -206,10 +219,10 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       // `this` value. It doesn't really make sense from a usage perspective to
       // pass the `this` value in by-copy, and host objects in the current
       // design are only ever passed by-copy.
-      if (cachedValueToVm1.has(thisArg)) {
-        thisValue = cachedValueToVm1.get(thisArg)!.value;
-      } else if (cachedValueToVm2.has(thisArg)) {
-        thisValue = cachedValueToVm2.get(thisArg)!;
+      if (cachedValueToGuest1.has(thisArg)) {
+        thisValue = cachedValueToGuest1.get(thisArg)!.value;
+      } else if (cachedValueToGuest2.has(thisArg)) {
+        thisValue = cachedValueToGuest2.get(thisArg)!;
       } else {
         thisValue = VM_VALUE_UNDEFINED;
       }
@@ -278,7 +291,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       // snapshot are added to the cachedValueToVm at startup.
       // Note: valueToHandle is used for the convenience being able to get a
       // pointer to the value.
-      const vmPropName = valueToHandle(valueToVM(p));
+      const vmPropName = valueToHandle(valueToGuest(p));
 
       // Note: `getProperty` trashes the object argument, so we can't pass our
       // owned handle directly, but we can use this temporary handle.
@@ -316,18 +329,18 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       // snapshot are added to the cachedValueToVm at startup.
       // Note: valueToHandle is used for the convenience being able to get a
       // pointer to the value.
-      const vmPropName = valueToHandle(valueToVM(p));
-      const vmValue = valueToHandle(valueToVM(hostValue));
+      const vmPropName = valueToHandle(valueToGuest(p));
+      const guestValue = valueToHandle(valueToGuest(hostValue));
 
       // Note: `setProperty` trashes the object argument, so we can't pass our
       // owned handle directly, but we can use this temporary handle.
       const vmObject = new Handle(this.handle.value);
 
-      const err = setProperty(vm, vmObject.address, vmPropName.address, vmValue.address);
+      const err = setProperty(vm, vmObject.address, vmPropName.address, guestValue.address);
       check(err);
 
       vmPropName.release();
-      vmValue.release();
+      guestValue.release();
       vmObject.release();
 
       return true;
@@ -387,6 +400,8 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     mvm_stopAfterNInstructions,
     mvm_getInstructionCountRemaining,
     vm_objectKeys,
+    mvm_asyncStart,
+    mvm_subscribeToPromise,
   } = exports;
   const engineVersion = `${readByte(engineMajorVersion.value)}.${readByte(engineMinorVersion.value)}.0`;
   const assumeVersion = (assumedVersion: string) => {
@@ -437,8 +452,8 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
   // other cache targets ROM values which last forever, so it doesn't hurt to
   // hold a strong reference to the key. ROM values may include functions and
   // primitives.
-  const cachedValueToVm1 = new WeakMap<Object, Handle>();
-  const cachedValueToVm2 = new Map<any, number>();
+  const cachedValueToGuest1 = new WeakMap<Object, Handle>();
+  const cachedValueToGuest2 = new Map<any, number>();
   const cachedValueToHost = new Map<number, any>();
   const handleFinalizationRegistry = new FinalizationRegistry<Handle>(releaseHandle);
 
@@ -462,7 +477,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
         if (p in cachedExports) return cachedExports[p];
         if (typeof p === 'symbol') return undefined; // No symbol-keyed exports
         const i = parseInt(p);
-        if ((i | 0) !== i) return 0; // No non-integer exports
+        if ((i | 0) !== i) return undefined; // No non-integer exports
         const vmExport = resolveExport(i);
         const hostExport = valueToHost(vmExport);
         return hostExport;
@@ -580,13 +595,26 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     let result: any;
     let errorCode;
     try {
-      result = resolveTo(...hostArgs);
+      if (Reflect.getPrototypeOf(resolveTo)?.constructor?.name === 'AsyncFunction') {
+        const callback_ = mvm_asyncStart(vm, out_vmpResult);
+        // Note: The host value will hold a handle to the callback
+        const callback = valueToHost(callback_);
+        const promise = resolveTo(...hostArgs);
+        assert(typeof callback === 'function');
+        Promise.resolve(promise).then(
+          result => callback(true, result),
+          error => callback(false, error),
+        );
+        return; // Bypass the normal return path
+      } else { // Normal function
+        result = resolveTo(...hostArgs);
+      }
       errorCode = 0;
     } catch (e) {
       result = e;
       errorCode = 44 /* MVM_E_UNCAUGHT_EXCEPTION */;
     }
-    let vmResult = valueToVM(result);
+    let vmResult = valueToGuest(result);
     // We can release the handle immediately because we're about to pass the
     // value back to the VM and no GC cycle can happen between now and when the
     // VM uses the returned value.
@@ -625,14 +653,14 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
 
   // Returns an mvm_Value (number) or a Handle. If a Handle, the caller is
   // responsible for releasing it.
-  function valueToVM(hostValue: any): number | Handle {
-    if (cachedValueToVm1.has(hostValue)) {
-      const result = cachedValueToVm1.get(hostValue)!;
+  function valueToGuest(hostValue: any): number | Handle {
+    if (cachedValueToGuest1.has(hostValue)) {
+      const result = cachedValueToGuest1.get(hostValue)!;
       result.addRef();
       return result;
     }
-    if (cachedValueToVm2.has(hostValue)) {
-      return cachedValueToVm2.get(hostValue)!;
+    if (cachedValueToGuest2.has(hostValue)) {
+      return cachedValueToGuest2.get(hostValue)!;
     }
 
     switch (typeof hostValue) {
@@ -664,14 +692,14 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
         if (hostValue === null) return 0x05;
         if (Array.isArray(hostValue)) {
           // Create an empty array
-          const vmValue = gcAllocate(4, 0x0D /* TC_REF_ARRAY */);
-          writeWord(vmValue.value, VM_VALUE_NULL); // dpData
-          writeWord(vmValue.value + 2, VM_VALUE_ZERO); // viLength
-          const proxy = valueToHost(vmValue.value);
+          const guestValue = gcAllocate(4, 0x0D /* TC_REF_ARRAY */);
+          writeWord(guestValue.value, VM_VALUE_NULL); // dpData
+          writeWord(guestValue.value + 2, VM_VALUE_ZERO); // viLength
+          const proxy = valueToHost(guestValue.value);
           for (const [index, value] of hostValue.entries()) {
             proxy[index] = value;
           }
-          return vmValue;
+          return guestValue;
         } else if (hostValue instanceof Uint8Array) {
           const handle = gcAllocate(hostValue.length, 0x07 /* TC_REF_UINT8_ARRAY */);
           const ptr = handle.value;
@@ -683,12 +711,19 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
           throw new Error('Maps are not supported');
         } else if (ArrayBuffer.isView(hostValue)) {
           throw new Error('Type arrays other than Uint8Array are not supported');
+        } else if (hostValue instanceof Promise) {
+          // Promises can in theory be supported, by constructing a Microvium
+          // promise and then subscribing to the host promise. However, I think
+          // this is low priority for me because host async functions can
+          // already be awaited without requiring the marshalling of promises
+          // (see `invokeHost`).
+          throw new Error('Promises are not supported');
         } else {
           // Create an empty object
-          const vmValue = gcAllocate(4, 0x0C /* TC_REF_PROPERTY_LIST */);
-          writeWord(vmValue.value, VM_VALUE_NULL); // dpNext
-          writeWord(vmValue.value + 2, VM_VALUE_NULL); // dpProto
-          const proxy = valueToHost(vmValue.value);
+          const guestValue = gcAllocate(4, 0x0C /* TC_REF_PROPERTY_LIST */);
+          writeWord(guestValue.value, VM_VALUE_NULL); // dpNext
+          writeWord(guestValue.value + 2, VM_VALUE_NULL); // dpProto
+          const proxy = valueToHost(guestValue.value);
           for (const [index, value] of Object.entries(hostValue)) {
             proxy[index] = value;
           }
@@ -697,7 +732,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
             proxy['message'] = hostValue.message;
             proxy['stack'] = hostValue.stack;
           }
-          return vmValue;
+          return guestValue;
         }
         break;
       }
@@ -716,29 +751,29 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     }
   }
 
-  function valueToAddress(vmValue) {
-    if ((vmValue & 3) === 3) {
+  function valueToAddress(guestValue) {
+    if ((guestValue & 3) === 3) {
       throw new Error('Expected address value but got int14');
     }
 
     // Short pointer
-    if ((vmValue & 1) === 0) {
-      return vmValue;
+    if ((guestValue & 1) === 0) {
+      return guestValue;
     }
 
     // Bytecode-mapped pointer
-    else if ((vmValue & 3) === 1) {
+    else if ((guestValue & 3) === 1) {
       // Note: Well-known values are part of the cachedValueToHost so it should
       // not get to this point in the code
-      assert(vmValue > 0x25);
+      assert(guestValue > 0x25);
 
-      const address = romStart + (vmValue & 0xFFFC);
+      const address = romStart + (guestValue & 0xFFFC);
       if (address >= romGlobalVariablesStart && address < romGlobalVariablesEnd) {
         // Probably the caller should have called `resolveValue` to resolve the
         // indirection, but we can do it here for them. The only catch is that
         // this will throw if the value is not a pointer.
-        const resolved = resolveValue(vmValue);
-        assert(resolved !== vmValue); // The ROM handles can't point to themselves
+        const resolved = resolveValue(guestValue);
+        assert(resolved !== guestValue); // The ROM handles can't point to themselves
         return valueToAddress(resolved);
       }
 
@@ -751,17 +786,17 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
    * you the "actual" value. This is idempotent so it's safe to use "just in
    * case".
    */
-  function resolveValue(vmValue: mvm_Value): mvm_Value {
+  function resolveValue(guestValue: mvm_Value): mvm_Value {
     // Indirections are only done by bytecode-mapped pointers
-    if ((vmValue & 3) !== 1) {
-      return vmValue;
+    if ((guestValue & 3) !== 1) {
+      return guestValue;
     }
 
-    let address = romStart + (vmValue & 0xFFFC);
+    let address = romStart + (guestValue & 0xFFFC);
 
     // Indirections are only done by pointers that point to ROM variables
     if (address < romGlobalVariablesStart || address >= romGlobalVariablesEnd) {
-      return vmValue;
+      return guestValue;
     }
 
     // To get the actual value, we address the equivalent variable in RAM
@@ -781,36 +816,36 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     return readWord(address);
   }
 
-  function valueToHost(vmValue: mvm_Value) {
-    vmValue = resolveValue(vmValue);
+  function valueToHost(guestValue: mvm_Value) {
+    guestValue = resolveValue(guestValue);
 
     // Int14
-    if ((vmValue & 3) === 3) {
+    if ((guestValue & 3) === 3) {
       // Use the 16th bit as the sign bit
-      return (vmValue << 16) >> 18;
+      return (guestValue << 16) >> 18;
     }
 
-    if (cachedValueToHost.has(vmValue)) {
-      return cachedValueToHost.get(vmValue)!;
+    if (cachedValueToHost.has(guestValue)) {
+      return cachedValueToHost.get(guestValue)!;
     }
 
-    const address = valueToAddress(vmValue);
+    const address = valueToAddress(guestValue);
 
-    const result = addressValueToHost(vmValue, address);
+    const result = addressValueToHost(guestValue, address);
 
     // Cache ROM values
     if (address >= romStart) {
       // If we pass the same ROM value back to the VM, we want to map it to the
       // same host value.
-      cachedValueToHost.set(vmValue, result);
+      cachedValueToHost.set(guestValue, result);
       // If the host passes the value back.
-      cachedValueToVm2.set(result, vmValue);
+      cachedValueToGuest2.set(result, guestValue);
     }
 
     return result;
   }
 
-  function addressValueToHost(vmValue: number, address: number): any {
+  function addressValueToHost(guestValue: number, address: number): any {
     const headerWord = readWord(address - 2);
     const typeCode = headerWord >>> 12;
     const size = headerWord & 0xFFF;
@@ -838,7 +873,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       case 0x5: // TC_REF_FUNCTION
       case 0xF: // TC_REF_CLOSURE
       {
-        return makeProxy(vmValue, 'function', valueIsConst);
+        return makeProxy(guestValue, 'function', valueIsConst);
       }
 
       // Host function
@@ -850,27 +885,60 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
 
       // Uint8Array
       case 0x7: {
-        return wrapUint8Array(vmValue, size, valueIsConst);
+        return wrapUint8Array(guestValue, size, valueIsConst);
       }
       // MVM_REF_CLASS
       case 0x9: {
-        return makeProxy(vmValue, 'class', valueIsConst);
+        return makeProxy(guestValue, 'class', valueIsConst);
       }
 
       // Object
       case 0xC: {
-        return makeProxy(vmValue, 'object', valueIsConst);
+        // Brand check
+        const vPrototype = readWord(address + 2);
+
+        // Promise object
+        if (vPrototype === getBuiltin(mvm_TeBuiltins.BIN_PROMISE_PROTOTYPE)) {
+          // Microvium doesn't support having callbacks from the guest to call
+          // the host, so we can't create a host promise that is subscribed to
+          // the guest promise. We still create a host promise, but it will
+          // throw if awaited. The host promise can still be used by passing it
+          // back into the VM.
+
+          const handle = new Handle(guestValue);
+          // Allocate a handle. Bind the handle lifetime to the promise. Add a
+          // subscriber to the promise which resolves/rejects the host promise.
+          const hostValue = Promise.reject('Microvium does not support having the host subscribe to guest promises');
+          // When the promise is freed then the handle can be released
+          handleFinalizationRegistry.register(hostValue, handle);
+          cachedValueToGuest1.set(hostValue, handle);
+          if (valueIsConst) {
+            cachedValueToGuest2.set(hostValue, guestValue);
+          }
+          return hostValue;
+        }
+
+        return makeProxy(guestValue, 'object', valueIsConst);
       }
 
       // TC_REF_ARRAY
       // TC_REF_FIXED_LENGTH_ARRAY
       case 0xD:
       case 0xE: {
-        return makeProxy(vmValue, 'array', valueIsConst);
+        return makeProxy(guestValue, 'array', valueIsConst);
       }
 
       default: return unexpected();
     }
+  }
+
+  function getBuiltin(builtin: mvm_TeBuiltins): mvm_Value {
+    assumeVersion('8.0.0');
+    const builtinsStart = romStart + readWord(romStart + 18); // BCS_BUILTINS
+    const builtinsEnd = romStart + readWord(romStart + 20);
+
+    const addr = builtinsStart + builtin * 2;
+    return readWord(addr);
   }
 
   function check(errorCode: number) {
@@ -880,10 +948,13 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
       throw new Error(`Bytecode is targeting a different engine version. Engine version is ${engineVersion} but bytecode requires ^${requiredEngineVersion}.`);
     }
 
+    const [name, message] = errorMessages[errorCode] ?? [];
+
     const desc =
-      errorCode in mvm_TeError ? `${mvm_TeError[errorCode]} (${errorCode})` :
-      errorCode === undefined ? 'unknown error' :
-      errorCode;
+      message && name && errorCode ? `${name} (${errorCode}): ${message}` :
+      name && errorCode ? `${name} (${errorCode})` :
+      errorCode ? `${errorCode}` :
+      'unknown error';
 
     throw new Error(`Microvium Error: ${desc}`)
   }
@@ -900,11 +971,11 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
 
     let cursor = stringTableStart;
     while (cursor < stringTableEnd) {
-      const vmValue = readWord(cursor);
+      const guestValue = readWord(cursor);
       // Just the act of converting it will cache it
-      const hostValue = valueToHost(vmValue);
-      assert(cachedValueToVm2.has(hostValue));
-      assert(cachedValueToHost.has(vmValue));
+      const hostValue = valueToHost(guestValue);
+      assert(cachedValueToGuest2.has(hostValue));
+      assert(cachedValueToHost.has(guestValue));
       cursor += 2;
     }
   }
@@ -912,7 +983,7 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
   function indexImports() {
     // This function builds a map of host exports by their index in the import
     // table. The index is what is referenced by the TC_REF_HOST_FUNCTION type,
-    // which we construct dynamically in valueToVM.
+    // which we construct dynamically in valueToGuest.
 
     const importById = new Map([...Object.entries(imports)].map(([id, f]) => [parseInt(id), f]));
     const indexByImport = new Map<AnyFunction, number>();
@@ -953,8 +1024,8 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     cachedValueToHost.set(0x25, noOpFunc);
   }
 
-  function wrapUint8Array(vmValue: mvm_Value, size: number, valueIsConst: boolean): MicroviumUint8Array {
-    const handle = new Handle(vmValue);
+  function wrapUint8Array(guestValue: mvm_Value, size: number, valueIsConst: boolean): MicroviumUint8Array {
+    const handle = new Handle(guestValue);
 
     const hostValue: MicroviumUint8Array = {
       slice(begin, end) {
@@ -993,10 +1064,10 @@ export async function restore(snapshot: ArrayLike<number>, imports: Imports, opt
     // by-reference. Since the object can move, we need to cache it by the
     // handle. We don't need to `addRef` on the handle here because its
     // lifetime is already locked to the hostValue which is the cache key.
-    cachedValueToVm1.set(hostValue, handle);
+    cachedValueToGuest1.set(hostValue, handle);
 
     if (valueIsConst) {
-      cachedValueToVm2.set(hostValue, vmValue);
+      cachedValueToGuest2.set(hostValue, guestValue);
     }
 
     return hostValue;

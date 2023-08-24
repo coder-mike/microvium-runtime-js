@@ -9394,7 +9394,6 @@ mvm_TeError mvm_uint8ArrayToBytes(mvm_VM* vm, mvm_Value uint8ArrayValue, uint8_t
   *out_data = p;
   return MVM_E_SUCCESS;
 }
-
 /**
  * The internal version of asyncStart.
  *
