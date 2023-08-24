@@ -19,19 +19,21 @@ Note: if you haven't set up your environment yet, set it up according to [Enviro
 
 ## Release Process
 
-Make sure:
-
 - Make sure terser is enabled in the rollup config.
 - Change `build.sh` back to release mode (change the build command to use the commented-out release-mode build).
 - Unskip the performance tests.
-- Update the readme where it says "the bundled size of the library is about" to the actual size (the size of `dist/index.js`). If this looks bigger than expected, make sure you remembered to enable terser and rebuild the WASM with optimizations.
-
-Optional patch version bump in package.json. The major and minor version should be tied to the Microvium version, and are updated automatically with the` npm run update-microvium` command.
 
 ```sh
 npm run update-microvium   # (wsl)
 npm run build              # (wsl)
 npm test                   # (git-bash)
+```
+
+- Update the readme where it says "the bundled size of the library is about" to the actual size (the size of `dist/index.js`). If this looks bigger than expected, make sure you remembered to enable terser and rebuild the WASM with optimizations.
+
+- Optional patch version bump in package.json. The major and minor version should be tied to the Microvium version, and are updated automatically with the` npm run update-microvium` command.
+
+```sh
 npm publish                # (git-bash)
 ```
 

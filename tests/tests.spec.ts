@@ -108,7 +108,7 @@ test('fmod and pow', async function () {
   assert.equal(pow(-10.5, -1.5), (-10.5) ** -1.5);
 });
 
-test.skip('performance 1', async function () {
+test('performance 1', async function () {
   this.timeout(20000);
 
   const objCount = 1000;
@@ -131,7 +131,7 @@ test.skip('performance 1', async function () {
   await measurePerformance(source, this.test!.title!);
 })
 
-test.skip('performance 2', async function () {
+test('performance 2', async function () {
   this.timeout(20000);
 
   // This is similar to the previous performance test except using closures

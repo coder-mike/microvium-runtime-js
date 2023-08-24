@@ -4,6 +4,8 @@
 
 JavaScript library for executing [Microvium](https://github.com/coder-mike/microvium) snapshots. It does not include the Microvium compiler to produce those snapshots (see [Microvium](https://github.com/coder-mike/microvium)).
 
+The bundled library (`dist/index.js`) is about 83kB and has no external dependencies.
+
 Implemented as a lightweight JavaScript wrapper around a WebAssembly build of `microvium.c`, to run in the browser or in Node.js.
 
 
@@ -11,7 +13,7 @@ Implemented as a lightweight JavaScript wrapper around a WebAssembly build of `m
 
 - As on a microcontroller, scripts running in Microvium can only use up to 64kB of RAM.
 - The WebAssembly memory is pre-allocated as 256 kB (see [memory usage](#memory-usage) below), no matter how small the actual script is.
-- Objects and arrays passed into the VM from the host are always passed by copy, not by reference.
+- Objects and arrays passed into the VM from the host are always passed by copy, not by reference. Only plain-old-data objects can be passed this way.
 - Objects and functions passed out of the VM to the host are not identity-preserving, meaning that if you pass the same object multiple times, you get a different proxy in the host each time.
 - Object prototypes are not preserved when passing objects between the VM and host.
 
@@ -38,7 +40,7 @@ const snapshot = [/* ...bytes... */];
 // Functions in the host that the snapshot can call, each
 // associated with a numeric ID in the range 0 to 0xFFFF.
 const importMap = {
-  [4321]: (arg) => console.log(arg);
+  [4321]: (arg) => console.log(arg)
 };
 
 // Restore a snapshot
@@ -133,12 +135,41 @@ Functions and closures are be passed **out** of Microvium **by reference**. Host
 
 ## Async-await
 
-As noted above, a host `Promise` cannot be passed from the host to the guest. However, the guest can directly call a host `async` function and the result will be a guest promise which the guest can safely `await`. This allows the host to expose asynchronous APIs to a guest.
+As noted above, a host `Promise` cannot be passed from the host to the guest. However, the guest can directly call a host `async` function and the result will be a guest promise which the guest can safely `await`. This allows the host to expose asynchronous APIs to a guest. Example:
+
+
+```js
+// guest.js
+
+const hostAsyncFunction = vmImport(1);
+const print = vmImport(2);
+vmExport(1, run);
+
+async function run() {
+  const result = await hostAsyncFunction();
+  print(`The result is ${result}`);
+}
+```
+
+```js
+// host.js
+
+async function hostAsyncFunction() {
+  // Delay 1000ms
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  // Return 42
+  return 42;
+}
+
+const imports = { 1: hostAsyncFunction, 2: console.log };
+const vm = Microvium.restore(snapshot, imports);
+const { 1: run } = vm.exports;
+
+run();
+```
 
 
 ## Memory usage
-
-The bundled library (`dist/index.js`) is about 64kB and has no external dependencies.
 
 Each Microvium instance is a fixed size and takes 4 pages of WASM memory (a total of 256kB):
 
