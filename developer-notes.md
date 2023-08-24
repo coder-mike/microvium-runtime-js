@@ -34,10 +34,9 @@ npm test                   # (git-bash)
 - Optional patch version bump in package.json. The major and minor version should be tied to the Microvium version, and are updated automatically with the` npm run update-microvium` command.
 
 ```sh
+npm login                  # (git-bash)
 npm publish                # (git-bash)
 ```
-
-Note: you may need to check that you're signed in to the right npm account.
 
 ## Environment Setup
 
