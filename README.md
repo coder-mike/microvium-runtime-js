@@ -1,13 +1,63 @@
 # @microvium/runtime
 
-*Run Microvium snapshots on a JavaScript host using the Microvium C runtime compiled to WASM*
+A JavaScript library for executing snapshots created by the [Microvium compiler](https://github.com/coder-mike/microvium) in the browser or Node.js.
 
-JavaScript library for executing [Microvium](https://github.com/coder-mike/microvium) snapshots. It does not include the Microvium compiler to produce those snapshots (see [Microvium](https://github.com/coder-mike/microvium)).
 
-The bundled library (`dist/index.js`) is about 83kB and has no external dependencies.
+## Install
 
-Implemented as a lightweight JavaScript wrapper around a WebAssembly build of `microvium.c`, to run in the browser or in Node.js.
+```sh
+npm install @microvium/runtime
+```
 
+
+## Example Usage
+
+Write a guest script:
+
+```js
+// guest.mjs
+
+const print = vmImport(1);
+
+function sayHello(name) {
+  print(`Hello, ${name}!`)
+}
+
+vmExport(1, sayHello);
+```
+
+Compile the guest script using the [Microvium CLI](https://github.com/coder-mike/microvium):
+
+```sh
+microvium guest.mjs --output-bytes
+```
+
+Write a host script:
+
+```js
+// host.mjs
+
+import Microvium from '@microvium/runtime';
+
+function print(str) {
+  console.log(str);
+}
+
+// Restore the snapshot
+const snapshot = [/* paste snapshot bytes here */];
+const imports = { 1: print };
+const vm = await Microvium.restore(snapshot, imports);
+const { 1: sayHello } = vm.exports;
+
+// Call the guest
+sayHello('World');
+```
+
+Run the host script:
+
+```sh
+node host.mjs   # prints "Hello, World!"
+```
 
 ## Limitations
 
@@ -18,40 +68,6 @@ Implemented as a lightweight JavaScript wrapper around a WebAssembly build of `m
 - Object prototypes are not preserved when passing objects between the VM and host.
 
 
-## Install
-
-```sh
-npm install @microvium/runtime
-```
-
-## Example Usage
-
-```js
-import Microvium from '@microvium/runtime';
-
-// Snapshot can be Uint8Array or plain array from running
-// the Microvium CLI like:
-//
-// ```sh
-// microvium script.js --output-bytes
-// ```
-const snapshot = [/* ...bytes... */];
-
-// Functions in the host that the snapshot can call, each
-// associated with a numeric ID in the range 0 to 0xFFFF.
-const importMap = {
-  [4321]: (arg) => console.log(arg)
-};
-
-// Restore a snapshot
-const vm = Microvium.restore(snapshot, importMap);
-
-// Resolve functions that the snapshot exports
-const sayHello = vm.exports[1234];
-
-// Call functions in the vm
-sayHello('Hello');
-```
 
 ## API
 
@@ -170,6 +186,8 @@ run();
 
 
 ## Memory usage
+
+The bundled library (`dist/index.js`) is about 83kB and has no external dependencies. It's implemented as a lightweight JavaScript wrapper around a WebAssembly build of `microvium.c`, to run in the browser or in Node.js.
 
 Each Microvium instance is a fixed size and takes 4 pages of WASM memory (a total of 256kB):
 
